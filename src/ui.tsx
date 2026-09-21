@@ -55,7 +55,7 @@ export function Segmented<T extends string | number>({
 
 export function TabStrip({ children, tools }: { children: ReactNode; tools?: ReactNode }) {
   return (
-    <div role="tablist" className="flex shrink-0 items-end gap-0.5 border-b border-rule bg-surface px-2 pt-1.5">
+    <div role="tablist" className="flex shrink-0 flex-wrap items-end gap-0.5 border-b border-rule bg-surface px-2 pt-1.5">
       {children}
       {tools && <div className="ml-auto flex min-w-0 items-center gap-1 pb-1 text-[12px]">{tools}</div>}
     </div>

@@ -69,6 +69,8 @@ interface Props {
   /** Show the RAM only / App only filters */
   filters?: boolean;
   label?: string;
+  /** Numeric rows exposed by the current expansion/filter state. */
+  onVisibleNodes?: (nodes: SymbolNode[]) => void;
 }
 
 export function SymbolTree({
@@ -80,6 +82,7 @@ export function SymbolTree({
   notes,
   filters = true,
   label = "Symbols",
+  onVisibleNodes,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [hideReadOnly, setHideReadOnly] = useState(true);
@@ -149,6 +152,10 @@ export function SymbolTree({
     return out;
   }, [tree, expanded, children, needle]);
 
+  useEffect(() => {
+    onVisibleNodes?.(rows.flatMap((r) => r.type === "node" && r.node.readable && typeof r.node.scalar === "string" && (r.node.kind === "scalar" || r.node.kind === "enum") ? [r.node] : []));
+  }, [rows, onVisibleNodes]);
+
   const toggle = (key: string, node?: SymbolNode) => {
     const next = new Set(expanded);
     if (next.has(key)) {
@@ -193,7 +200,7 @@ export function SymbolTree({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-3 px-2 py-2">
+      <div className="flex flex-wrap items-center gap-2 px-2 py-2">
         <input
           value={filter}
           onChange={(e) => setFilter(e.currentTarget.value)}

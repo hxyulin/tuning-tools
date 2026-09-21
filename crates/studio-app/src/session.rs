@@ -16,7 +16,7 @@ use studio_carriers::serial::{self, PortInfo, SerialStream};
 use studio_carriers::{ByteStream, CarrierError, Link};
 use studio_core::catalog::{Catalog, TableLayout};
 use studio_core::link::{spawn_link, LinkOptions};
-use studio_core::plan::{decode, scalar_len};
+use studio_core::plan::{decode, scalar_len, ReadPlan};
 use studio_core::session::SessionOptions;
 use studio_core::tap::{SessionInfo, TunableName, TuneRequest};
 use studio_core::{ReadItem, Session, SessionCommand, SessionSink, TapSink, WatchMeta};
@@ -503,6 +503,9 @@ impl StudioApp {
 
     /// Read each numeric node once, outside the sampled watch set.
     pub fn read_values(&self, nodes: &[NodeRef]) -> Result<Vec<ValueRead>, String> {
+        if nodes.len() > MAX_LEAVES {
+            return Err(format!("read at most {MAX_LEAVES} values per request"));
+        }
         let elf = self.elf.current()?;
         let items: Vec<Result<ReadItem, String>> = nodes
             .iter()
@@ -514,22 +517,34 @@ impl StudioApp {
                 })
             })
             .collect();
-        let regions: Vec<(u64, usize)> = items
-            .iter()
-            .filter_map(|i| i.as_ref().ok()?.span())
-            .map(|(start, len)| (start, len as usize))
-            .collect();
-        let mut bytes = self.read_once(regions)?.into_iter();
+        // Use the same datavis-rs coalescer as plot sampling. One command goes
+        // through the session owner; neighbouring inspector values share a read.
+        let plan = ReadPlan::new(
+            items
+                .iter()
+                .filter_map(|item| item.as_ref().ok().cloned())
+                .collect(),
+        );
+        let regions = plan.regions();
+        let bytes = self.read_once(
+            regions
+                .iter()
+                .map(|r| (r.address, r.len as usize))
+                .collect(),
+        )?;
         Ok(items
             .into_iter()
             .map(|item| match item {
-                Ok(item) => match bytes.next() {
-                    Some(b) if b.len() >= item.span().map_or(0, |(_, len)| len as usize) => {
-                        ValueRead {
-                            value: Some(decode(&item, &b)).filter(|v| !v.is_nan()),
-                            error: None,
-                        }
-                    }
+                Ok(item) => match item.span().and_then(|(address, len)| {
+                    regions.iter().zip(&bytes).find_map(|(region, bytes)| {
+                        let offset = address.checked_sub(region.address)? as usize;
+                        bytes.get(offset..offset.checked_add(len as usize)?)
+                    })
+                }) {
+                    Some(b) => ValueRead {
+                        value: Some(decode(&item, b)).filter(|v| !v.is_nan()),
+                        error: None,
+                    },
                     _ => ValueRead {
                         value: None,
                         error: Some("short read".into()),

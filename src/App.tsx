@@ -4,6 +4,7 @@ import { SymbolTree } from "./elf/SymbolTree";
 import { NodeDetails } from "./elf/NodeDetails";
 import { ConnectDefaults, HostStartup, WatchSeed, host } from "./host";
 import type { ConnectRequest } from "./live/api";
+import { LiveWatch } from "./live/LiveWatch";
 import { ConnectBar } from "./live/ConnectBar";
 import { LogFilter, LogTools, LogView, defaultLogFilter } from "./live/LogConsole";
 import { Scope } from "./live/Scope";
@@ -59,7 +60,7 @@ export default function App() {
   const [selected, setSelected] = useState<SymbolNode | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sideTab, setSideTab] = useState<"symbols" | "tune">("symbols");
+  const [sideTab, setSideTab] = useState<"symbols" | "tune" | "live">("symbols");
   const [dockTab, setDockTab] = useState<"log" | "tasks">("log");
   const [side, setSide] = useState(host.name !== "vscode");
   const [dock, setDock] = useState(loadDock);
@@ -237,6 +238,7 @@ export default function App() {
           <span className="min-w-0 flex-1 truncate text-muted">{elf ? fileName(elf.summary.path) : connected ? "USB tuning" : "No target connected"}</span>
           {chip && <span className={`text-[11px] ${chip.className}`}>{chip.text}</span>}
           <button className={ghostButton} aria-expanded={side} onClick={() => { setSide((s) => !s); setSideTab("tune"); }}>Tune</button>
+          {elf && <button className={ghostButton} aria-expanded={side && sideTab === "live"} onClick={() => { setSide(true); setSideTab("live"); }}>Live Watch</button>}
           <button className={ghostButton} onClick={() => workbench("tuningStudio.showLogs")}>Firmware log</button>
           {hasTasks && <button className={ghostButton} onClick={() => { setDockTab("tasks"); setDockOpen((s) => !s); }}>Tasks</button>}
           <button className={button} onClick={() => workbench(connected ? "tuningStudio.disconnect" : "tuningStudio.connect")}>{connected ? "Disconnect" : "Connect…"}</button>
@@ -265,11 +267,16 @@ export default function App() {
                     Symbols
                   </Tab>
                 )}
+                {elf && <Tab selected={tab === "live"} onSelect={() => setSideTab("live")}>Live Watch</Tab>}
                 <Tab selected={tab === "tune"} onSelect={() => setSideTab("tune")} count={catalog?.entries.length ?? null}>
                   Tune
                 </Tab>
               </TabStrip>
-              {tab === "symbols" && elf ? (
+              {tab === "live" && elf ? (
+                <div className="min-h-0 flex-1">
+                  <LiveWatch roots={symbolRoots} connected={connected} carrier={session.link.carrier} onWatch={onWatch} watched={watchedPaths} />
+                </div>
+              ) : tab === "symbols" && elf ? (
                 <>
                   <div className="min-h-0 flex-1">
                     <SymbolTree
