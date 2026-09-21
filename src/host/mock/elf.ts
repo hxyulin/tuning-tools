@@ -33,7 +33,7 @@ const statics: (Spec & { section: string; readOnly?: boolean })[] = [
     children: [
       { name: "mode", type: "ChassisMode", size: 1, kind: "enum", scalar: "u8" },
       { name: "wheels", type: "[Wheel; 4]", size: 64, kind: "array", children: [0, 1, 2, 3].map(wheel) },
-      { name: "debug_ptr", type: "*const u8", size: 4, kind: "pointer" },
+      { name: "debug_ptr", type: "*const f32", size: 4, kind: "pointer", scalar: "u32", children: [f32("*")] },
     ],
   },
   {
@@ -89,12 +89,14 @@ export function childrenOf(ref: NodeRef): SymbolNode[] {
 
 /** Scalar and enum leaves under a node, as the backend's `watchable_leaves` lists them */
 export function leavesOf(node: SymbolNode): SymbolNode[] {
-  if (!node.readable) return [];
+  if (!node.readable || node.kind === "pointer" || node.ref.steps.some((s) => s.kind === "deref")) return [];
   if (node.kind === "scalar" || node.kind === "enum") return typeof node.scalar === "string" ? [node] : [];
   return childrenOf(node.ref).flatMap(leavesOf);
 }
 
 export function readerFor(node: SymbolNode): (() => number) | null {
+  if (node.path === "chassis::CHASSIS.debug_ptr") return () => 0x20000100;
+  if (node.path === "chassis::CHASSIS.debug_ptr.*") return signals["chassis::CHASSIS.wheels[0].speed"];
   return signals[node.path] ?? localReaders.get(node.path) ?? null;
 }
 
@@ -125,7 +127,7 @@ function makeNode(spec: Spec, path: string, ref: NodeRef, address: number): Symb
     refKey(ref),
     (spec.children ?? []).map((child) => {
       const index = child.name.startsWith("[");
-      const step = index
+      const step = kind === "pointer" ? ({ kind: "deref" } as const) : index
         ? ({ kind: "index", value: Number(child.name.slice(1, -1)) } as const)
         : ({ kind: "member", value: child.name } as const);
       const made = makeNode(child, index ? `${path}${child.name}` : `${path}.${child.name}`, { ...ref, steps: [...ref.steps, step] }, offset);

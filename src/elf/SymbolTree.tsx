@@ -38,7 +38,7 @@ function buildNamespaces(roots: RootNode[]): Namespace {
 
 /** Numbers, and containers that may hold numbers, on a readable node. */
 export function watchable(node: SymbolNode) {
-  if (!node.readable) return false;
+  if (!node.readable || node.ref.steps.some((s) => s.kind === "deref")) return false;
   if (node.kind === "scalar" || node.kind === "enum") return node.scalar !== null && typeof node.scalar === "string";
   return node.kind === "struct" || node.kind === "array" || node.kind === "taggedEnum";
 }
@@ -153,7 +153,7 @@ export function SymbolTree({
   }, [tree, expanded, children, needle]);
 
   useEffect(() => {
-    onVisibleNodes?.(rows.flatMap((r) => r.type === "node" && r.node.readable && typeof r.node.scalar === "string" && (r.node.kind === "scalar" || r.node.kind === "enum") ? [r.node] : []));
+    onVisibleNodes?.(rows.flatMap((r) => r.type === "node" && r.node.readable && typeof r.node.scalar === "string" && (r.node.kind === "scalar" || r.node.kind === "enum" || r.node.kind === "pointer") ? [r.node] : []));
   }, [rows, onVisibleNodes]);
 
   const toggle = (key: string, node?: SymbolNode) => {

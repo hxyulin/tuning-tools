@@ -182,6 +182,7 @@ pub struct TaskSnapshot {
 pub struct ValueRead {
     /// `None` when it could not be read
     value: Option<f64>,
+    text: Option<String>,
     error: Option<String>,
 }
 
@@ -507,14 +508,46 @@ impl StudioApp {
             return Err(format!("read at most {MAX_LEAVES} values per request"));
         }
         let elf = self.elf.current()?;
+        let mut pointers = std::collections::HashMap::new();
+        let mut read_pointer = |address: u64, len: usize| -> Result<u64, String> {
+            pointers
+                .entry((address, len))
+                .or_insert_with(|| {
+                    let bytes = self.read_once(vec![(address, len)])?;
+                    let b = bytes
+                        .first()
+                        .filter(|b| b.len() == len)
+                        .ok_or("short pointer read")?;
+                    let mut raw = [0u8; 8];
+                    if elf.is_little_endian {
+                        raw[..len].copy_from_slice(b);
+                    } else {
+                        raw[8 - len..].copy_from_slice(b);
+                    }
+                    let value = if elf.is_little_endian {
+                        u64::from_le_bytes(raw)
+                    } else {
+                        u64::from_be_bytes(raw)
+                    };
+                    if value == 0 {
+                        Err("null pointer".into())
+                    } else {
+                        Ok(value)
+                    }
+                })
+                .clone()
+        };
         let items: Vec<Result<ReadItem, String>> = nodes
             .iter()
             .map(|n| {
-                resolve(&elf, n).and_then(|item| {
-                    item.span()
-                        .map(|_| item)
-                        .ok_or_else(|| "not a single number".to_string())
-                })
+                tree::node_with_memory(&elf, n, &mut read_pointer)
+                    .map_err(|e| e.to_string())
+                    .and_then(read_item)
+                    .and_then(|item| {
+                        item.span()
+                            .map(|_| item)
+                            .ok_or_else(|| "not a single number".to_string())
+                    })
             })
             .collect();
         // Use the same datavis-rs coalescer as plot sampling. One command goes
@@ -526,12 +559,46 @@ impl StudioApp {
                 .collect(),
         );
         let regions = plan.regions();
-        let bytes = self.read_once(
+        let bytes = match self.read_once(
             regions
                 .iter()
                 .map(|r| (r.address, r.len as usize))
                 .collect(),
-        )?;
+        ) {
+            Ok(bytes) => bytes,
+            // A bad pointee must not hide unrelated fields. Retry bounded individual
+            // spans only after a failed coalesced read involving dereferences.
+            Err(_)
+                if nodes
+                    .iter()
+                    .any(|n| n.steps.contains(&studio_dwarf::Step::Deref)) =>
+            {
+                return Ok(items
+                    .into_iter()
+                    .map(|item| {
+                        let read = item.and_then(|item| {
+                            let (address, len) = item.span().ok_or("not a number")?;
+                            let bytes = self.read_once(vec![(address, len as usize)])?;
+                            let bytes = bytes
+                                .first()
+                                .filter(|b| b.len() == len as usize)
+                                .ok_or("short read")?;
+                            Ok(ValueRead {
+                                value: Some(decode(&item, bytes)).filter(|v| v.is_finite()),
+                                text: exact_integer(&item, bytes),
+                                error: None,
+                            })
+                        });
+                        read.unwrap_or_else(|error| ValueRead {
+                            value: None,
+                            text: None,
+                            error: Some(error),
+                        })
+                    })
+                    .collect());
+            }
+            Err(error) => return Err(error),
+        };
         Ok(items
             .into_iter()
             .map(|item| match item {
@@ -542,16 +609,19 @@ impl StudioApp {
                     })
                 }) {
                     Some(b) => ValueRead {
-                        value: Some(decode(&item, b)).filter(|v| !v.is_nan()),
+                        value: Some(decode(&item, b)).filter(|v| v.is_finite()),
+                        text: exact_integer(&item, b),
                         error: None,
                     },
                     _ => ValueRead {
                         value: None,
+                        text: None,
                         error: Some("short read".into()),
                     },
                 },
                 Err(error) => ValueRead {
                     value: None,
+                    text: None,
                     error: Some(error),
                 },
             })
@@ -658,6 +728,10 @@ fn resolve_watch(
 
 fn resolve(elf: &ElfInfo, node: &NodeRef) -> Result<ReadItem, String> {
     let n = tree::node(elf, node).map_err(|e| e.to_string())?;
+    read_item(n)
+}
+
+fn read_item(n: SymbolNode) -> Result<ReadItem, String> {
     if !n.readable {
         return Err(n.status.unwrap_or_else(|| "not readable".into()));
     }
@@ -708,4 +782,44 @@ fn collect_leaves(
         _ => {}
     }
     Ok(())
+}
+
+/// Preserve integers that cannot round-trip through JSON's f64 number model.
+fn exact_integer(item: &ReadItem, bytes: &[u8]) -> Option<String> {
+    use studio_dwarf::VariableType;
+    if item.bit_size.is_some() || item.bit_offset.is_some() {
+        return None;
+    }
+    match item.scalar {
+        VariableType::U64 => Some(u64::from_le_bytes(bytes.try_into().ok()?).to_string()),
+        VariableType::I64 => Some(i64::from_le_bytes(bytes.try_into().ok()?).to_string()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod inspector_tests {
+    use super::*;
+    use studio_dwarf::VariableType;
+
+    #[test]
+    fn integer_text_preserves_all_64_bits() {
+        let mut item = ReadItem {
+            id: 0,
+            address: 0,
+            scalar: VariableType::U64,
+            bit_offset: None,
+            bit_size: None,
+        };
+        assert_eq!(
+            exact_integer(&item, &u64::MAX.to_le_bytes()).as_deref(),
+            Some("18446744073709551615")
+        );
+        item.scalar = VariableType::I64;
+        assert_eq!(
+            exact_integer(&item, &i64::MIN.to_le_bytes()).as_deref(),
+            Some("-9223372036854775808")
+        );
+        assert_eq!(exact_integer(&item, &[]), None);
+    }
 }

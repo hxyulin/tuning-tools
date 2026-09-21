@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type Step =
+  | { kind: "deref" }
   | { kind: "member"; value: string }
   | { kind: "index"; value: number }
   | { kind: "variant"; value: string }

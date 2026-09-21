@@ -148,9 +148,9 @@ Recovery checks: `npm --prefix vscode run test:recovery` and the extension harne
 ## Live Watch (SWD)
 
 Open **Variables → Live Watch** in the desktop app, or **Live Watch** in the
-VS Code scope toolbar. Expand namespaces, structs and arrays to inspect numeric
+VS Code scope toolbar. Expand namespaces, structs, arrays and pointers to inspect numeric
 fields. Filtering and collapsing groups change the inspected set; **Pause** freezes
-readouts, and **W** on a field adds it to the existing plot/watch list.
+readouts, and **W** on a fixed-address field adds it to the existing plot/watch list.
 
 Inspection runs separately from plotted samples, at up to 5 Hz with one request in
 flight and a limit of 128 expanded numeric fields. Hidden panels stop polling.
@@ -159,10 +159,20 @@ fields into bounded memory regions, read by the existing session worker without
 halting or resetting the target. This is region coalescing, not the deferred raw
 CMSIS-DAP multi-command packet fast path.
 
-This first version is read-only and uses ELF-resolved numeric fields; pointers are
-not followed. Values use the existing numeric API (64-bit integers beyond the exact
-JavaScript number range may be rounded). USB targets continue to expose firmware
-values through Tune. Inspector reads are separate from recorded plot samples.
+Expand a typed pointer's `*` child to follow it. Pointer chains are resolved again
+on every poll, with shared pointer reads cached only for that poll and pointee
+fields coalesced as usual. Null pointers and failed reads show errors; following
+stops after eight dereferences. Void/function pointers cannot be expanded.
+Pointer-derived fields are inspection-only: plotting still requires fixed
+addresses. Reads occur while the target runs, so a changing pointer and its
+pointee are not an atomic snapshot.
+
+Ordinary 64-bit integers display exact decimal text; plots still use floating-point
+numbers. Inspection is read-only, arrays currently show up to 256 elements, and
+tagged enum payloads are not automatically filtered by their active variant.
+USB targets continue to expose firmware values through Tune. Inspector reads
+are separate from recorded plot samples.
 
 Validation: `cargo test -p studio-app --test live_watch` checks coalescing,
-request order, duplicate/missing symbols, changing values, limits and disconnects.
+request order, duplicate/missing symbols, changing values, pointer retargeting,
+shared/nested pointers, nulls, depth limits and disconnects.

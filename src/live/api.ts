@@ -197,6 +197,7 @@ export function taskStates(): Promise<TaskSnapshot> {
 }
 
 export interface ValueRead {
+  text?: string | null;
   value: number | null;
   error: string | null;
 }

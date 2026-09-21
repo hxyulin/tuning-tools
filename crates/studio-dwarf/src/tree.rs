@@ -3,7 +3,7 @@
 //!
 //! Nodes are addressed by [`NodeRef`] (symbol path plus steps), never by address,
 //! so a reference stays meaningful after a rebuild moves things around.
-//! Pointers are leaves: following them needs target memory.
+//! Pointer children describe types; live addresses require `node_with_memory`.
 //!
 //! Wrappers that only hold one value (`AtomicU32`, `UnsafeCell`, `Cell`,
 //! `MaybeUninit`, embassy's blocking `Mutex`, newtypes) are shown through: a
@@ -38,6 +38,8 @@ pub enum Step {
     /// Slot of an embassy task pool, as the task's `TaskStorage`; only the
     /// first step
     Task(u64),
+    /// Follow a pointer using current target memory.
+    Deref,
 }
 
 /// Stable reference to a node: full symbol path, then steps into its type.
@@ -72,6 +74,7 @@ impl fmt::Display for NodeRef {
         f.write_str(&self.symbol)?;
         for step in &self.steps {
             match step {
+                Step::Deref => f.write_str(".*")?,
                 Step::Member(name) => write!(f, ".{name}")?,
                 Step::Index(i) => write!(f, "[{i}]")?,
                 Step::Variant(name) => write!(f, "#{name}")?,
@@ -255,7 +258,18 @@ pub fn roots(elf: &ElfInfo) -> Vec<RootNode> {
 
 /// Describe the node `node` refers to.
 pub fn node(elf: &ElfInfo, node: &NodeRef) -> Result<SymbolNode, TreeError> {
-    let (sym, at) = resolve(elf, node)?;
+    node_with_memory(elf, node, &mut |_, _| {
+        Err("pointer following requires live memory".into())
+    })
+}
+
+/// Resolve a node with a caller-owned pointer reader. Never caches live addresses.
+pub fn node_with_memory(
+    elf: &ElfInfo,
+    node: &NodeRef,
+    read_pointer: &mut dyn FnMut(u64, usize) -> Result<u64, String>,
+) -> Result<SymbolNode, TreeError> {
+    let (sym, at) = resolve_with_memory(elf, node, read_pointer)?;
     let mut out = describe(
         elf.type_table(),
         node.clone(),
@@ -280,7 +294,8 @@ pub fn children(
     limit: Option<usize>,
 ) -> Result<Children, TreeError> {
     let table = elf.type_table();
-    let (sym, at) = resolve(elf, node)?;
+    // Children carry type metadata; addresses below dereferences are placeholders.
+    let (sym, at) = resolve_with_memory(elf, node, &mut |_, _| Ok(0))?;
     let limit = limit.unwrap_or(DEFAULT_CHILD_LIMIT) as u64;
     let readable = sym.is_readable();
 
@@ -326,6 +341,15 @@ pub fn children(
                 .map(|m| member_node(Step::Member(m.name.clone()), m, None))
                 .collect(),
         },
+        Some(TypeDef::Pointer(inner) | TypeDef::Reference(inner)) => {
+            vec![describe(
+                table,
+                node.child(Step::Deref),
+                "*".into(),
+                0,
+                *inner,
+            )]
+        }
         Some(TypeDef::Array {
             element,
             count: Some(count),
@@ -365,7 +389,23 @@ struct Resolved {
     discr_value: Option<u64>,
 }
 
-fn resolve<'e>(elf: &'e ElfInfo, node: &NodeRef) -> Result<(&'e SymbolInfo, Resolved), TreeError> {
+fn resolve_with_memory<'e>(
+    elf: &'e ElfInfo,
+    node: &NodeRef,
+    read_pointer: &mut dyn FnMut(u64, usize) -> Result<u64, String>,
+) -> Result<(&'e SymbolInfo, Resolved), TreeError> {
+    if node
+        .steps
+        .iter()
+        .filter(|s| matches!(s, Step::Deref))
+        .count()
+        > 8
+    {
+        return Err(TreeError::BadStep {
+            at: node.to_string(),
+            reason: "pointer depth limit (8) reached".into(),
+        });
+    }
     let table = elf.type_table();
     let sym = elf
         .find_symbol(&node.symbol)
@@ -385,6 +425,32 @@ fn resolve<'e>(elf: &'e ElfInfo, node: &NodeRef) -> Result<(&'e SymbolInfo, Reso
     for step in &node.steps {
         if let Step::Task(slot) = step {
             at = enter_task(table, sym, &walked, *slot)?;
+            walked = walked.child(step.clone());
+            continue;
+        }
+        if matches!(step, Step::Deref) {
+            let bad = |reason| TreeError::BadStep {
+                at: walked.to_string(),
+                reason,
+            };
+            if !sym.is_readable() {
+                return Err(bad("not readable".into()));
+            }
+            let Some(TypeDef::Pointer(inner) | TypeDef::Reference(inner)) =
+                table.get(table.get_underlying(peel(table, at.type_id)))
+            else {
+                return Err(bad("not a pointer".into()));
+            };
+            let address =
+                read_pointer(at.address, if elf.is_64bit { 8 } else { 4 }).map_err(bad)?;
+            at = Resolved {
+                label: "*".into(),
+                address,
+                type_id: *inner,
+                bit_offset: None,
+                bit_size: None,
+                discr_value: None,
+            };
             walked = walked.child(step.clone());
             continue;
         }
@@ -498,7 +564,9 @@ fn enter(
             let elem_size = table.type_size(*element).unwrap_or(0);
             return Ok(Resolved {
                 label: format!("[{i}]"),
-                address: address + i * elem_size,
+                address: address
+                    .checked_add(i.checked_mul(elem_size).ok_or("array offset overflow")?)
+                    .ok_or("address overflow")?,
                 type_id: *element,
                 bit_offset: None,
                 bit_size: None,
@@ -512,7 +580,9 @@ fn enter(
             Step::Discriminant => "<discriminant>".to_string(),
             _ => member.name.clone(),
         },
-        address: address + member.offset,
+        address: address
+            .checked_add(member.offset)
+            .ok_or("address overflow")?,
         type_id: member.type_id,
         bit_offset: member.bit_offset,
         bit_size: member.bit_size,
@@ -611,7 +681,10 @@ pub(crate) fn describe(
         },
         Some(TypeDef::Union(s)) => (NodeKind::Union, Some(s.members.len() as u64)),
         Some(TypeDef::Array { count, .. }) => (NodeKind::Array, *count),
-        Some(TypeDef::Pointer(_) | TypeDef::Reference(_)) => (NodeKind::Pointer, None),
+        Some(TypeDef::Pointer(inner) | TypeDef::Reference(inner)) => (
+            NodeKind::Pointer,
+            table.type_size(*inner).filter(|size| *size > 0).map(|_| 1),
+        ),
         Some(TypeDef::Subroutine { .. }) => (NodeKind::Function, None),
         _ => (NodeKind::Other, None),
     };

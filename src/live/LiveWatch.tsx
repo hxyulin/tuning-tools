@@ -66,7 +66,7 @@ export function LiveWatch({ roots, connected, carrier, onWatch, watched }: {
   const notes = useMemo(() => new Map<string, RowNote>(visible.map((node, i) => {
     const read = values.get(node.path);
     return [node.path, {
-      text: i >= LIMIT ? "limit reached" : read?.error ? "read failed" : read?.value == null ? "—" : formatValue(read.value, node.scalar),
+      text: i >= LIMIT ? "limit reached" : read?.error ? "read failed" : read?.value == null ? "—" : (read.text ?? (node.kind === "pointer" ? `0x${read.value.toString(16)}` : formatValue(read.value, node.scalar))),
       title: read?.error ?? `${node.typeName} · ${node.path}`,
       tone: read?.error ? "danger" : live && !paused ? "ink" : "muted",
     }];
@@ -82,6 +82,6 @@ export function LiveWatch({ roots, connected, carrier, onWatch, watched }: {
     <div className="min-h-0 flex-1">
       <SymbolTree roots={roots} selected={selected} onSelect={setSelected} onWatch={onWatch} watched={watched} notes={notes} onVisibleNodes={setVisible} label="Live Watch" />
     </div>
-    <p className="border-t border-rule px-3 py-2 text-[11px] text-muted">Expand structs and arrays to read their fields. Select a number and press W to plot it. Reads do not halt the target.</p>
+    <p className="border-t border-rule px-3 py-2 text-[11px] text-muted">Expand structs, arrays and pointers to read their fields. Press W to plot fixed-address numbers. Reads do not halt the target.</p>
   </div>;
 }
