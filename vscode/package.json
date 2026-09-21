@@ -88,6 +88,12 @@
         "category": "Tuning Studio",
         "title": "Change Sample Rate\u2026",
         "enablement": "tuningStudio.connected"
+      },
+      {
+        "command": "tuningStudio.reconnect",
+        "title": "Reconnect Previous Target",
+        "category": "Tuning Studio",
+        "enablement": "!tuningStudio.connected"
       }
     ],
     "configuration": {
@@ -203,7 +209,8 @@
     "webview": "npm --prefix .. run build:webview",
     "smoke": "node esbuild.mjs && node dist/smoke.js",
     "harness": "node esbuild.mjs && node dist/harness.js",
-    "test:webview": "node scripts/webviewBridge.mjs"
+    "test:webview": "node scripts/webviewBridge.mjs",
+    "test:recovery": "node scripts/connectionRecovery.mjs"
   },
   "devDependencies": {
     "@types/node": "^20",

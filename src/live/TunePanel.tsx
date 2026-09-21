@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Catalog, CatalogEntry } from "../elf/api";
 import { host } from "../host";
-import { ghostButton, primaryButton } from "../ui";
+import { field, ghostButton, primaryButton } from "../ui";
 import { formatValue } from "./format";
 import { Tune } from "./useSession";
 
@@ -25,12 +25,17 @@ interface Group {
 
 function groups(catalog: Catalog): Group[] {
   const out: Group[] = [];
+  const byName = new Map<string, Group>();
   for (const entry of catalog.entries) {
     const cut = entry.name.lastIndexOf(".");
     const name = cut < 0 ? "" : entry.name.slice(0, cut);
-    const last = out[out.length - 1];
-    if (last && last.name === name) last.entries.push(entry);
-    else out.push({ name, entries: [entry] });
+    let group = byName.get(name);
+    if (!group) {
+      group = { name, entries: [] };
+      byName.set(name, group);
+      out.push(group);
+    }
+    group.entries.push(entry);
   }
   return out;
 }
@@ -46,7 +51,9 @@ function range(entry: CatalogEntry) {
 }
 
 export function TunePanel({ catalog, catalogError, tune, connected, fromTarget, watched, onWatch, onSave }: Props) {
-  const grouped = useMemo(() => (catalog ? groups(catalog) : []), [catalog]);
+  const [query, setQuery] = useState("");
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const grouped = useMemo(() => catalog ? groups({ ...catalog, entries: catalog.entries.filter((e) => e.name.toLowerCase().includes(query.trim().toLowerCase())) }) : [], [catalog, query]);
   const [busy, setBusy] = useState<"reset" | "save" | null>(null);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
 
@@ -101,10 +108,22 @@ export function TunePanel({ catalog, catalogError, tune, connected, fromTarget, 
           </span>
         )}
       </p>
+      <div className="px-3 py-2">
+        <input type="search" aria-label="Filter tuning values" placeholder="Filter values…" value={query} onChange={(e) => setQuery(e.target.value)} className={`${field} w-full`} />
+      </div>
       <div className="min-h-0 flex-1 overflow-auto pb-3">
+        {!grouped.length && <p className="px-3 text-muted">No matching values.</p>}
         {grouped.map((group) => (
-          <section key={group.name}>
-            <h3 className="px-3 pt-2 pb-0.5 text-[10.5px] tracking-[.05em] text-muted uppercase">{group.name || "values"}</h3>
+          <details key={group.name} open={!!query.trim() || !collapsed.has(group.name)} className="tune-group">
+            <summary onClick={(e) => {
+              e.preventDefault();
+              if (query.trim()) return;
+              setCollapsed((previous) => {
+                const next = new Set(previous);
+                if (next.has(group.name)) next.delete(group.name); else next.add(group.name);
+                return next;
+              });
+            }} className="cursor-pointer px-3 py-2 text-[11px] font-medium text-muted">{group.name || "Values"} <span className="text-faint">{group.entries.length}</span></summary>
             <ul>
               {group.entries.map((entry) => (
                 <Row
@@ -118,7 +137,7 @@ export function TunePanel({ catalog, catalogError, tune, connected, fromTarget, 
                 />
               ))}
             </ul>
-          </section>
+          </details>
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-1.5 border-t border-rule bg-panel px-3 py-2 text-[12px]">
@@ -162,6 +181,7 @@ const pill = "inline-block rounded-full border px-[7px] text-[10.5px] leading-4"
 
 function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
   const live = entry.access !== "readOnly";
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +192,7 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
   const applied = value?.applied ?? null;
   const settling = live && requested !== null && applied !== null && requested !== applied;
   const id = `req-${entry.id}`;
+  const detailsId = `details-${entry.id}`;
 
   async function send(text: string) {
     const number = Number(text.trim());
@@ -207,11 +228,8 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
       <span className={`${pill} border-accent bg-accent-wash text-ink`} title="Save to keep it after a power cycle">
         Not saved
       </span>
-    ) : requested === entry.default ? (
-      <span className={`${pill} border-rule text-muted`}>Default</span>
-    ) : (
-      <span className={`${pill} border-good text-good`}>Saved</span>
-    );
+    ) : null;
+
 
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_92px] items-center gap-x-2 gap-y-0.5 border-b border-grid px-3 py-1.5">
@@ -254,21 +272,9 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
           {applied === null ? (value ? "read failed" : "") : formatValue(applied, entry.kind)}
         </span>
       )}
-      <div className="col-span-2 flex min-w-0 items-center gap-2 text-[11px] text-faint">
-        <span className="truncate" title={entry.maxStep ? `At most ${entry.maxStep} per control tick` : undefined}>
-          {range(entry)}
-        </span>
-        {live && (
-          <button
-            type="button"
-            disabled={!canWrite || sending || requested === entry.default}
-            onClick={() => void send(String(entry.default))}
-            title="Request the built-in value"
-            className="shrink-0 rounded-sm px-0.5 enabled:hover:bg-sunken enabled:hover:text-ink"
-          >
-            default {formatValue(entry.default, entry.kind)}
-          </button>
-        )}
+      <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
+        {entry.unit && <span>{entry.unit}</span>}
+        <button type="button" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen((v) => !v)} className={ghostButton}>Details</button>
         {settling && (
           <span className="shrink-0 text-warn" title="Moving toward the request at the firmware's step limit">
             running {formatValue(applied, entry.kind)}
@@ -292,6 +298,12 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
           {live && state}
         </span>
       </div>
+      {detailsOpen && <div id={detailsId} className="col-span-2 grid gap-1 rounded-sm bg-panel p-2 text-[11px] text-muted">
+        <span className="break-all font-mono">{entry.name}</span>
+        {range(entry) && <span>Range: {range(entry)}</span>}
+        {entry.maxStep !== null && <span>Step limit: {entry.maxStep} per control tick</span>}
+        {live && <button type="button" disabled={!canWrite || sending || requested === entry.default} onClick={() => void send(String(entry.default))} className={`${ghostButton} text-left`}>Reset to default ({formatValue(entry.default, entry.kind)})</button>}
+      </div>}
       {error && <p className="col-span-2 text-[11px] text-danger">{error}</p>}
       {!error && note && <p className="col-span-2 text-[11px] text-warn">{note}</p>}
     </li>

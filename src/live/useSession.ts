@@ -87,12 +87,16 @@ export function useSession() {
   }, []);
 
   const disconnect = useCallback(async () => {
-    await host.disconnect();
-    setTune(null);
-    // The session reports `disconnected` itself; this covers a session that never started
-    setLink((l) =>
-      l.state === "connecting" || l.state === "connected" ? l : { state: "idle", message: null, carrier: null },
-    );
+    try {
+      await host.disconnect();
+      // Ignore late events from a cancelled or disconnected attempt.
+      ++generation.current;
+      setTune(null);
+      setStats(null);
+      setLink((l) => ({ state: "disconnected", message: null, carrier: l.carrier }));
+    } catch (e) {
+      setLink((l) => ({ ...l, message: `Could not disconnect: ${String(e)}` }));
+    }
   }, []);
 
   /** Keep every requested tuning value across a power cycle */

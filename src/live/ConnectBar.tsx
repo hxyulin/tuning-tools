@@ -1,8 +1,9 @@
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ConnectDefaults, host } from "../host";
 import { Segmented, button, field, primaryButton } from "../ui";
 import type * as api from "./api";
 import { useHostStatus } from "./useHostStatus";
+import { connectionProblem } from "./connection";
 import { Link } from "./useSession";
 
 const RATES = [10, 50, 100, 200, 500, 1000];
@@ -48,6 +49,9 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
   const [chips, setChips] = useState<string[]>([]);
   const [ports, setPorts] = useState<api.PortInfo[] | null>(null);
   const chipList = useId();
+  const [scanError, setScanError] = useState<string | null>(null);
+  const scanGeneration = useRef(0);
+  const [rateError, setRateError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const active = link.state === "connecting" || link.state === "connected";
 
@@ -84,23 +88,34 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
     }));
   }, [defaults]);
 
-  const refreshProbes = () => {
-    setProbes(null);
-    host.listProbes().then(setProbes, () => setProbes([]));
-  };
-  useEffect(refreshProbes, []);
+  const refreshDevices = useCallback(async () => {
+    const generation = ++scanGeneration.current;
+    const results = await Promise.allSettled([host.listProbes(), host.listSerialPorts()]);
+    if (generation !== scanGeneration.current) return;
+    const [probeResult, portResult] = results;
+    setProbes(probeResult.status === "fulfilled" ? probeResult.value : null);
+    setPorts(portResult.status === "fulfilled" ? portResult.value : null);
+    const selected = settings.carrier === "serial" ? portResult : probeResult;
+    setScanError(selected.status === "rejected" ? `Could not scan devices: ${String(selected.reason)}` : null);
+  }, [settings.carrier]);
 
-  const refreshPorts = () => {
-    setPorts(null);
-    host.listSerialPorts().then(setPorts, () => setPorts([]));
-  };
-  useEffect(refreshPorts, []);
+  useEffect(() => {
+    if (active) return;
+    void refreshDevices();
+    const timer = window.setInterval(() => void refreshDevices(), 3000);
+    window.addEventListener("focus", refreshDevices);
+    return () => {
+      ++scanGeneration.current;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshDevices);
+    };
+  }, [active, refreshDevices]);
 
   useEffect(() => {
     const query = settings.chip.trim();
     if (query.length < 3) return setChips([]);
     let stale = false;
-    host.searchChips(query).then((names) => !stale && setChips(names));
+    host.searchChips(query).then((names) => !stale && setChips(names), () => !stale && setChips([]));
     return () => {
       stale = true;
     };
@@ -124,21 +139,14 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
 
   const serial = settings.carrier === "serial";
   const selectedMissing = settings.probe && probes && !probes.some((p) => p.selector === settings.probe);
-  // Fall back to the first firmware port when the remembered one is gone
+  // Preserve an explicit selection: reconnect must not silently choose a different robot.
   const portMissing = settings.port && ports && !ports.some((p) => p.path === settings.port);
   const port = settings.port || ports?.find((p) => p.telemetry)?.path || "";
   const source = sources[settings.carrier];
-  const blocked = !source.available
-    ? (source.reason ?? "Not available here")
-    : serial
-      ? !port
-        ? "Plug in the robot's USB cable, then rescan"
-        : null
-      : !canConnect
-        ? "Open the firmware ELF first"
-        : !settings.chip.trim()
-          ? "Enter the target chip"
-          : null;
+  const blocked = connectionProblem({
+    carrier: settings.carrier, port, probe: settings.probe, chip: settings.chip,
+    ports, probes, canConnect, source, scanError,
+  });
   const shownNotice = notice && notice.id !== dismissed ? notice : null;
 
   return (
@@ -149,7 +157,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
       <span className="flex-1" />
       <button type="button" className={button} aria-expanded={settingsOpen} onClick={() => setSettingsOpen((v) => !v)}>Connection settings…</button>
       <button type="submit" disabled={!active && blocked !== null} title={active ? undefined : (blocked ?? undefined)} className={active ? button : primaryButton}>
-        {link.state === "connecting" ? "Cancel" : active ? "Disconnect" : "Connect"}
+        {link.state === "connecting" ? "Cancel" : active ? "Disconnect" : link.state === "failed" ? "Retry connection" : link.state === "disconnected" ? "Reconnect" : "Connect"}
       </button>
       {shownNotice && (
         <span role="status" className="flex items-center gap-1.5 rounded-sm border border-rule bg-sunken px-2 py-px">
@@ -201,7 +209,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
           <label className="flex items-center gap-1.5">
             <span className="text-muted">Port</span>
             <select value={port} onChange={(e) => update({ port: e.currentTarget.value })} disabled={active} className={`${field} max-w-60`}>
-              {!port && <option value="">{ports === null ? "Looking for ports…" : "No robot found"}</option>}
+              {!port && <option value="">{ports === null ? "Looking for ports…" : ports?.length ? "Select a port" : "No ports found"}</option>}
               {ports?.map((p) => (
                 <option key={p.path} value={p.path}>
                   {p.path.replace(/^\/dev\//, "")}
@@ -211,7 +219,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
               {portMissing && <option value={settings.port}>{settings.port} (not attached)</option>}
             </select>
           </label>
-          <button type="button" onClick={refreshPorts} disabled={active} title="Look for serial ports again" className={button}>
+          <button type="button" onClick={() => void refreshDevices()} disabled={active} title="Look for serial ports again" className={button}>
             Rescan
           </button>
         </>
@@ -235,7 +243,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
               {selectedMissing && <option value={settings.probe}>{settings.probe} (not attached)</option>}
             </select>
           </label>
-          <button type="button" onClick={refreshProbes} disabled={active} title="Look for probes again" className={button}>
+          <button type="button" onClick={() => void refreshDevices()} disabled={active} title="Look for probes again" className={button}>
             Rescan
           </button>
           <label className="flex items-center gap-1.5">
@@ -284,7 +292,8 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
           onChange={(e) => {
             const rateHz = Number(e.currentTarget.value);
             update({ rateHz });
-            if (link.state === "connected") void host.setRate(rateHz);
+            setRateError(null);
+            if (link.state === "connected") void host.setRate(rateHz).catch((e) => setRateError(`Could not change sample rate: ${String(e)}`));
           }}
           className={field}
         >
@@ -299,6 +308,12 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
       </details>
         </div>
       </div>}
+      {rateError && <p role="alert" className="w-full text-danger">{rateError}</p>}
+      {!active && link.message && <div role="alert" className="w-full rounded-sm border border-danger px-3 py-2 text-danger">
+        <p>{link.message}</p>
+        <p className="mt-1 text-muted">Check the cable and target power, then retry. Connection settings are kept.</p>
+      </div>}
+      {!active && <button type="button" className={button} onClick={() => void refreshDevices()}>Rescan devices</button>}
       {!active && blocked && <p className="w-full text-[12px] text-muted">{blocked}. {!settingsOpen && "Use Connection settings to choose your target."}</p>}
     </form>
   );

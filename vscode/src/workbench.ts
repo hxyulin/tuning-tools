@@ -129,6 +129,20 @@ export function registerWorkbench(context: vscode.ExtensionContext, session: Stu
     await session.call("session_connect", { request, session: Math.floor(Math.random() * 0x3fffffff) + 1 });
     session.refreshPage();
   });
+  command("reconnect", async () => {
+    if (session.active) return;
+    const request = session.lastConnection;
+    if (!request) return vscode.commands.executeCommand("tuningStudio.connect");
+    if (request.carrier === "serial") {
+      const ports = await session.call("list_serial_ports", {}) as PortInfo[];
+      if (!ports.some((p) => p.path === request.port)) throw new Error("The previous USB port is missing. Reattach it or use Connect Target to choose another port.");
+    } else {
+      const probes = await session.call("list_probes", {}) as ProbeInfo[];
+      if (!probes.length || (request.probe && !probes.some((p) => p.selector === request.probe))) throw new Error("The previous probe is missing. Reattach it or use Connect Target to choose another probe.");
+    }
+    await session.call("session_connect", { request, session: Math.floor(Math.random() * 0x3fffffff) + 1 });
+    session.refreshPage();
+  });
   command("setRate", async () => {
     if (!session.active) throw new Error("Connect a target before changing the sample rate.");
     const rate = await vscode.window.showQuickPick([10, 50, 100, 200, 500, 1000].map(hz => ({ label: `${hz} Hz`, hz })), { title: "Sample rate" });
@@ -166,6 +180,7 @@ export function registerWorkbench(context: vscode.ExtensionContext, session: Stu
       ...(!session.active ? [{ label: "Open firmware ELF…", action: "openElf" }] : []),
       ...(session.active ? [{ label: session.recording ? "Stop recording" : "Start recording", action: session.recording ? "stopRecording" : "startRecording" }] : []),
       { label: "Show firmware log", action: "showLogs" },
+      ...(!session.active && session.lastConnection ? [{ label: "Reconnect previous target", action: "reconnect" }] : []),
     ], { title: "Tuning Studio" });
     if (picked) await vscode.commands.executeCommand(`tuningStudio.${picked.action}`);
   });

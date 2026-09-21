@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import { build } from "esbuild";
+import { runInNewContext } from "node:vm";
+
+const { outputFiles } = await build({ entryPoints: ["../src/live/connection.ts"], bundle: true, write: false, platform: "node", format: "cjs" });
+const context = { module: { exports: {} }, exports: {} };
+runInNewContext(outputFiles[0].text, context);
+const { connectionProblem } = context.module.exports;
+const base = { carrier: "serial", port: "/dev/robot-a", probe: "probe-a", chip: "STM32H723VGTx", ports: [{ path: "/dev/robot-a" }], probes: [{ selector: "probe-a" }], canConnect: true, source: { available: true, reason: null }, scanError: null };
+assert.equal(connectionProblem(base), null);
+assert.match(connectionProblem({ ...base, ports: [{ path: "/dev/robot-b" }] }), /missing/);
+assert.equal(connectionProblem({ ...base, canConnect: false }), null, "USB needs no ELF");
+assert.match(connectionProblem({ ...base, ports: null }), /Looking/);
+assert.match(connectionProblem({ ...base, scanError: "permission denied" }), /permission denied/);
+assert.match(connectionProblem({ ...base, carrier: "probe", probes: [{ selector: "probe-b" }] }), /missing/);
+assert.match(connectionProblem({ ...base, carrier: "probe", probes: [] }), /missing/);
+assert.equal(connectionProblem({ ...base, carrier: "probe" }), null, "reattached probe is connectable");
+assert.match(connectionProblem({ ...base, carrier: "probe", source: { available: false, reason: "Debugger owns probe" } }), /Debugger/);
+assert.match(connectionProblem({ ...base, carrier: "probe", canConnect: false }), /ELF/);
+assert.match(connectionProblem({ ...base, carrier: "probe", chip: " " }), /chip/);
+console.log("connection recovery: missing devices, reattachment, scan failures and debugger ownership pass");

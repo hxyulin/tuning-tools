@@ -132,3 +132,15 @@ reattachment.
   or stop watching. Click its unit to change lane grouping.
 - **Diagnostics…** shows ELF details, read timing, RTT status and TCP streaming.
   Sample rate, failures, skipped ticks and abnormal core/log states stay visible.
+
+Disconnected desktop sessions rescan devices automatically. Missing remembered devices
+stay selected until reattached or explicitly changed. Use **Retry connection** after
+an error, or **Reconnect** after disconnecting. VS Code offers **Reconnect Previous
+Target** in the Command Palette and Target Actions, retaining the last connection and
+sample rate for the current extension session.
+
+Tune values can be filtered by full name and grouped sections can be collapsed.
+**Details** contains range, step limit and reset-to-default controls. Unsaved changes,
+firmware adjustments and write errors remain visible beside their values.
+
+Recovery checks: `npm --prefix vscode run test:recovery` and the extension harness.

@@ -249,6 +249,14 @@ async function main() {
   await harness.commands.get("tuningStudio.showSource")!({ ...root, location: { file: "src/main.rs", line: 2 } });
   assert.equal(harness.documents.at(-1), join(REPO, "src/main.rs"));
   await harness.commands.get("tuningStudio.disconnect")!();
+  await harness.commands.get("tuningStudio.reconnect")!();
+  await until("native reconnect", () => /: connected/.test(harness.statusBars[0].text));
+  const retried = await call("startup");
+  assert.equal(retried.connect.chip, native.connect.chip);
+  assert.equal(retried.connect.probe, native.connect.probe);
+  assert.equal(retried.connect.rateHz, 200, "reconnect retains the latest sample rate");
+  assert.notEqual(retried.resumeSession, native.resumeSession);
+  await harness.commands.get("tuningStudio.disconnect")!();
   assert.equal(harness.log.filter(l => l.startsWith("starting ")).length, starts);
   panel.dispose();
   for (const subscription of context.subscriptions) subscription.dispose();

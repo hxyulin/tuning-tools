@@ -47,6 +47,7 @@ export class StudioSession implements ProbeHolder {
   private logLines: Extract<SessionEvent, { type: "log" }>["lines"] = [];
   elf: OpenedElf | null = null;
   state = "disconnected";
+  get lastConnection(): ConnectRequest | null { return this.request ? { ...this.request } : null; }
   recording = false;
   private disposed = false;
   private savedValues: [number, number][] = [];
