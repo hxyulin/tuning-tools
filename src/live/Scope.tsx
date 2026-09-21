@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { host } from "../host";
-import { Segmented, button, ghostButton } from "../ui";
+import { Segmented, Popover, button, field, ghostButton } from "../ui";
 import { formatTicks } from "./format";
 import { Legend, LegendActions } from "./Legend";
 import { Readout, newReadout, notify, useReadout } from "./readout";
@@ -79,6 +79,9 @@ export function Scope({ watches, connected, halted, onToggleSide, ...actions }: 
   const [theme, setTheme] = useState(0);
   const [readout] = useState<Readout>(newReadout);
   const recorder = useRecorder();
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsAnchor = useRef<HTMLButtonElement>(null);
+  const closeOptions = useCallback(() => setOptionsOpen(false), []);
   // The x window: follows the newest sample while live, holds still (or zooms) while paused
   const view = useRef({ windowSec: settings.windowSec, paused: false, from: 0, to: settings.windowSec, dirty: true });
   const hosts = useRef(new Map<string, HTMLDivElement>());
@@ -277,40 +280,28 @@ export function Scope({ watches, connected, halted, onToggleSide, ...actions }: 
   return (
     <section aria-label="Scope" className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] bg-surface">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-rule px-3 py-1">
-        <button
-          onClick={onToggleSide}
-          title="Show or hide the side panel"
-          aria-label="Toggle side panel"
-          className={ghostButton}
-        >
-          ☰
-        </button>
         <h2 className="text-[13px] font-semibold">Scope</h2>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-rule bg-panel pr-2.5 pl-2 text-[12px] leading-5">
           <span aria-hidden className={`h-[7px] w-[7px] ${chip.dot}`} />
           {chip.text}
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="text-muted">Window</span>
-          <Segmented
-            label="Window"
-            value={paused ? null : settings.windowSec}
-            onChange={setWindow}
-            options={WINDOWS.map((s) => ({ value: s, label: `${s} s` }))}
-          />
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="text-muted">Layout</span>
-          <Segmented
-            label="Layout"
-            value={settings.layout}
-            onChange={(layout) => update({ layout })}
-            options={[
-              { value: "lanes", label: "Lanes by unit", title: "One lane per unit; each lane scales its own y-axis" },
-              { value: "overlay", label: "Overlay", title: "Every trace on one y-axis" },
-            ]}
-          />
-        </span>
+        <label className="flex items-center gap-1.5 text-muted">
+          Window
+          <select aria-label="Chart time window" className={field} value={settings.windowSec} onChange={(e) => setWindow(Number(e.target.value))}>
+            {WINDOWS.map((seconds) => <option key={seconds} value={seconds}>{seconds} s</option>)}
+          </select>
+        </label>
+        <button ref={optionsAnchor} className={ghostButton} onClick={() => setOptionsOpen((v) => !v)} aria-expanded={optionsOpen} aria-haspopup="dialog">Chart options…</button>
+        <Popover anchor={optionsAnchor} open={optionsOpen} onClose={closeOptions} place="below-left" label="Chart options">
+          <div className="grid gap-3 p-2">
+            <span className="font-semibold">Group traces</span>
+            <Segmented label="Layout" value={settings.layout} onChange={(layout) => update({ layout })} options={[
+              { value: "lanes", label: "By unit", title: "Each unit has its own axis" },
+              { value: "overlay", label: "Overlay", title: "All traces share one axis" },
+            ]} />
+            <p className="max-w-64 text-muted">Drag across a chart to zoom. Double-click to return to live. Space pauses or resumes the chart.</p>
+          </div>
+        </Popover>
         <RecordButton rec={recorder} connected={connected} />
         <span className="flex-1" />
         <CursorTime readout={readout} />
@@ -354,11 +345,11 @@ export function Scope({ watches, connected, halted, onToggleSide, ...actions }: 
             </div>
           )}
           {lanes.length === 0 && (
-            <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-muted">
-              {connected
-                ? "Watch a number from the Symbols or Tune tab, or turn one on with its swatch in the watch list below."
-                : "Connect to the target, then watch numbers from the Symbols or Tune tab to plot them."}
-            </p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+              <p className="font-medium">{watches.length ? "Choose a value to plot" : "Add your first variable"}</p>
+              <p className="max-w-sm text-muted">{watches.length ? "Click a value’s color swatch below to show it on the chart." : host.name === "vscode" ? "Use + beside a symbol in the workbench, or open Tune to watch a tuning value." : "Choose a symbol or tuning value from Variables to start plotting."}</p>
+              {!watches.length && <button className={button} onClick={onToggleSide}>{host.name === "vscode" ? "Show tuning values" : "Show variables"}</button>}
+            </div>
           )}
         </div>
         <Legend lanes={lanes} watches={watches} overlay={settings.layout === "overlay"} readout={readout} {...actions} />

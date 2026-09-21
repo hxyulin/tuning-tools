@@ -36,8 +36,7 @@ export function registerWorkbench(context: vscode.ExtensionContext, session: Stu
         { label: session.elf ? basename(session.elf.summary.path) : "Open firmware ELF…",
           description: session.elf?.summary.machine, command: "tuningStudio.openElf", icon: "file-binary" },
         { label: "Open scope", command: "tuningStudio.open", icon: "graph-line" },
-        { label: session.recording ? "Stop recording" : "Start recording",
-          command: session.recording ? "tuningStudio.stopRecording" : "tuningStudio.startRecording", icon: "record" },
+        ...(session.recording ? [{ label: "Stop recording", command: "tuningStudio.stopRecording", icon: "record" }] : []),
         { label: "Firmware log", command: "tuningStudio.showLogs", icon: "output" },
       ],
       getTreeItem: (row) => {
@@ -164,7 +163,8 @@ export function registerWorkbench(context: vscode.ExtensionContext, session: Stu
       { label: session.active ? "Disconnect target" : "Connect target…", action: session.active ? "disconnect" : "connect" },
       { label: "Open scope", action: "open" },
       ...(session.active ? [{ label: "Change sample rate…", action: "setRate" }] : []),
-      { label: "Open firmware ELF…", action: "openElf" },
+      ...(!session.active ? [{ label: "Open firmware ELF…", action: "openElf" }] : []),
+      ...(session.active ? [{ label: session.recording ? "Stop recording" : "Start recording", action: session.recording ? "stopRecording" : "startRecording" }] : []),
       { label: "Show firmware log", action: "showLogs" },
     ], { title: "Tuning Studio" });
     if (picked) await vscode.commands.executeCommand(`tuningStudio.${picked.action}`);

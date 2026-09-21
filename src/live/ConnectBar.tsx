@@ -48,6 +48,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
   const [chips, setChips] = useState<string[]>([]);
   const [ports, setPorts] = useState<api.PortInfo[] | null>(null);
   const chipList = useId();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const active = link.state === "connecting" || link.state === "connected";
 
   const update = (patch: Partial<Settings>) => {
@@ -118,7 +119,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (active) onDisconnect();
-    else connect();
+    else if (!blocked) { setSettingsOpen(false); connect(); }
   };
 
   const serial = settings.carrier === "serial";
@@ -146,6 +147,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
       <span className="font-medium">{serial ? "USB target" : settings.chip || "Debug probe"}</span>
       <span className="text-muted">{link.state === "connected" ? "Connected" : link.state === "connecting" ? "Connecting…" : link.state === "failed" ? "Connection failed" : "Disconnected"}</span>
       <span className="flex-1" />
+      <button type="button" className={button} aria-expanded={settingsOpen} onClick={() => setSettingsOpen((v) => !v)}>Connection settings…</button>
       <button type="submit" disabled={!active && blocked !== null} title={active ? undefined : (blocked ?? undefined)} className={active ? button : primaryButton}>
         {link.state === "connecting" ? "Cancel" : active ? "Disconnect" : "Connect"}
       </button>
@@ -171,8 +173,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
           </button>
         </span>
       )}
-      <details className="connection-settings w-full">
-        <summary className="cursor-pointer select-none text-[12px] text-muted hover:text-ink">Connection settings <span className="ml-2 text-faint">{serial ? port || "Select a port" : `${settings.rateHz} Hz · ${settings.speedKhz / 1000} MHz SWD`}</span></summary>
+      {settingsOpen && <div className="connection-settings w-full">
         <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-rule pt-3">
       <Segmented<api.Carrier | "debugger">
         label="Connect through"
@@ -254,6 +255,12 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
               ))}
             </datalist>
           </label>
+        </>
+      )}
+      <details className="w-full">
+        <summary className="cursor-pointer text-muted">Advanced · {settings.rateHz} Hz{!serial && ` · ${settings.speedKhz / 1000} MHz SWD`}</summary>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {!serial && (<>
           <label className="flex items-center gap-1.5" title="SWD clock speed. Lower it if reads fail on long or noisy wiring.">
             <span className="text-muted">SWD</span>
             <select
@@ -269,8 +276,7 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
               ))}
             </select>
           </label>
-        </>
-      )}
+          </>)}
       <label className="flex items-center gap-1.5">
         <span className="text-muted">Rate</span>
         <select
@@ -291,7 +297,9 @@ export function ConnectBar({ link, canConnect, onConnect, onDisconnect, preset, 
       </label>
         </div>
       </details>
-      {!active && blocked && <p className="w-full text-[12px] text-muted">{blocked}</p>}
+        </div>
+      </div>}
+      {!active && blocked && <p className="w-full text-[12px] text-muted">{blocked}. {!settingsOpen && "Use Connection settings to choose your target."}</p>}
     </form>
   );
 }

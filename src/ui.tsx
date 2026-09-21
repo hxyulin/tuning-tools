@@ -120,43 +120,60 @@ export function Popover({
   useLayoutEffect(() => {
     if (!open || !anchor.current) return;
     const r = anchor.current.getBoundingClientRect();
-    setAt(
-      place === "below-left"
-        ? { top: r.bottom + 4, left: Math.max(4, r.left) }
-        : { bottom: window.innerHeight - r.top + 4, right: Math.max(4, window.innerWidth - r.right) },
-    );
+    const width = panel.current?.offsetWidth ?? 300;
+    const height = panel.current?.offsetHeight ?? 200;
+    const left = place === "below-left" ? r.left : r.right - width;
+    const top = place === "below-left" ? r.bottom + 4 : r.top - height - 4;
+    setAt({
+      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
+      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
+    });
   }, [open, anchor, place]);
 
   useEffect(() => {
     if (!open) return;
     const down = (e: PointerEvent) => {
       const t = e.target as Node;
+      // A nested popover is portalled beside its parent, not inside it.
+      const panels = [...document.querySelectorAll("[data-popover]")];
+      const own = panels.indexOf(panel.current!);
+      if (panels.slice(own + 1).some((p) => p.contains(t))) return;
       if (!panel.current?.contains(t) && !anchor.current?.contains(t)) onClose();
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && [...document.querySelectorAll("[data-popover]")].slice(-1)[0] === panel.current) {
+        e.preventDefault();
+        onClose();
+        const target = anchor.current;
+        (target?.matches("button") ? target : target?.querySelector("button"))?.focus();
+      }
     };
+    const focusFrame = requestAnimationFrame(() => {
+      panel.current?.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex='0']")?.focus();
+    });
     const resize = () => onClose();
     document.addEventListener("pointerdown", down);
     document.addEventListener("keydown", key);
     window.addEventListener("resize", resize);
     return () => {
+      cancelAnimationFrame(focusFrame);
       document.removeEventListener("pointerdown", down);
       document.removeEventListener("keydown", key);
       window.removeEventListener("resize", resize);
     };
   }, [open, onClose, anchor]);
 
-  if (!open || !at) return null;
+  if (!open) return null;
   // Portalled so the panel inherits nothing from where its anchor sits
   // (the status bar's nowrap would stop its text wrapping)
   return createPortal(
     <div
       ref={panel}
+      data-popover
       role="dialog"
       aria-label={label}
-      style={at}
-      className="fixed z-50 max-w-[calc(100vw-8px)] min-w-[220px] rounded-sm border border-rule bg-surface p-1 text-[12px] whitespace-normal text-ink shadow-lg"
+      style={at ?? { visibility: "hidden" }}
+      className="fixed z-50 max-h-[calc(100vh-8px)] overflow-auto max-w-[calc(100vw-8px)] min-w-[220px] rounded-sm border border-rule bg-surface p-1 text-[12px] whitespace-normal text-ink shadow-lg"
     >
       {children}
     </div>,

@@ -121,3 +121,14 @@ Validation: `npm --prefix vscode run typecheck` and
 `npm --prefix vscode run harness`. The harness exercises the extension with a mock
 server, including probe handoff, recording/export, native commands and scope
 reattachment.
+
+## Interface controls
+
+- **Connection settings…** selects the desktop probe/chip or USB port. Expand
+  **Advanced** for sampling rate and SWD speed. In VS Code, use native Target Actions.
+- **Chart options…** switches between lanes grouped by unit and an overlay.
+  The time window, pause/resume and recording stay on the scope toolbar.
+- Use a watched value's **⋯** button or right-click its row to show/hide its trace
+  or stop watching. Click its unit to change lane grouping.
+- **Diagnostics…** shows ELF details, read timing, RTT status and TCP streaming.
+  Sample rate, failures, skipped ticks and abnormal core/log states stay visible.

@@ -92,7 +92,7 @@ export default function App() {
       const opened = await host.openElf(path);
       setElf(opened);
       setSelected(null);
-      if (!opened.catalog) setSideTab("symbols");
+      setSideTab(opened.catalog ? "tune" : "symbols");
       return opened;
     } catch (e) {
       setError(`Could not open ${fileName(path)}: ${e}`);
@@ -196,7 +196,7 @@ export default function App() {
         <>
           <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-rule bg-surface px-4 py-2">
             <span className="mr-2 font-semibold tracking-tight">Tuning Studio</span>
-            <button onClick={chooseElf} disabled={loading !== null} className={button}>
+            <button onClick={chooseElf} disabled={loading !== null || connected} title={connected ? "Disconnect before changing firmware" : undefined} className={button}>
               Open ELF…
             </button>
             {loading && <span className="text-muted">Reading {loading}…</span>}
@@ -232,11 +232,11 @@ export default function App() {
         </>
       )}
       {host.name === "vscode" && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-rule px-3 py-1.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule px-3 py-1.5">
           <button className={ghostButton} onClick={() => workbench("tuningStudio.target.focus")}>Target & symbols</button>
           <span className="min-w-0 flex-1 truncate text-muted">{elf ? fileName(elf.summary.path) : connected ? "USB tuning" : "No target connected"}</span>
           {chip && <span className={`text-[11px] ${chip.className}`}>{chip.text}</span>}
-          <button className={ghostButton} onClick={() => { setSide((s) => !s); setSideTab("tune"); }}>Tune</button>
+          <button className={ghostButton} aria-expanded={side} onClick={() => { setSide((s) => !s); setSideTab("tune"); }}>Tune</button>
           <button className={ghostButton} onClick={() => workbench("tuningStudio.showLogs")}>Firmware log</button>
           {hasTasks && <button className={ghostButton} onClick={() => { setDockTab("tasks"); setDockOpen((s) => !s); }}>Tasks</button>}
           <button className={button} onClick={() => workbench(connected ? "tuningStudio.disconnect" : "tuningStudio.connect")}>{connected ? "Disconnect" : "Connect…"}</button>
@@ -308,7 +308,7 @@ export default function App() {
               watches={watch.watches}
               connected={connected}
               halted={connected && session.stats?.core === "halted"}
-              onToggleSide={() => setSide((s) => !s)}
+              onToggleSide={() => { setSide(true); if (host.name === "vscode") setSideTab("tune"); }}
               onTogglePlot={watch.togglePlot}
               onRemove={watch.remove}
               onClear={watch.clear}

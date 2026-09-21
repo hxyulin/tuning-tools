@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { MenuItem, Popover } from "../ui";
+import { host } from "../host";
 import { formatLive, formatTick } from "./format";
 import { samples } from "./samples";
 import { Readout, useReadout } from "./readout";
@@ -60,7 +62,7 @@ export function Legend({ lanes, watches, overlay, readout, ...actions }: Props) 
         <div className="px-2.5 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Watched values</div>
         {watches.length === 0 && (
           <p className="p-3 leading-relaxed text-muted">
-            Nothing watched yet. Pick numbers from the Symbols tab (select a row and press W), or watch a tuning value.
+            {host.name === "vscode" ? "Use + beside a symbol in the workbench, or watch a value in Tune." : "Pick a number in Symbols and press W, or watch a value in Tune."}
           </p>
         )}
         {lanes.map((lane, i) => (
@@ -100,6 +102,9 @@ interface RowProps extends LegendActions {
 }
 
 function Row({ watch: w, inLane, canPlot, cursor, range, onTogglePlot, onRemove, onSetUnit, writable, onWrite }: RowProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuAnchor = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
   const cut = w.path.lastIndexOf("::");
   const name = watchName(w.path);
   const module = w.cell !== null ? "tuning table" : cut < 0 ? "" : w.path.slice(0, cut);
@@ -108,7 +113,7 @@ function Row({ watch: w, inLane, canPlot, cursor, range, onTogglePlot, onRemove,
   const failed = !cursor && latest !== undefined && Number.isNaN(latest);
 
   return (
-    <div className="group grid grid-cols-[14px_minmax(0,1fr)_auto_18px] items-center gap-x-[7px] px-2.5 py-[3px] hover:bg-panel">
+    <div onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true); }} className="group grid grid-cols-[14px_minmax(0,1fr)_auto_18px] items-center gap-x-[7px] px-2.5 py-[3px] hover:bg-panel">
       <button
         onClick={() => onTogglePlot(w.id)}
         disabled={!canPlot}
@@ -136,12 +141,22 @@ function Row({ watch: w, inLane, canPlot, cursor, range, onTogglePlot, onRemove,
         />
       )}
       <button
-        onClick={() => onRemove(w.id)}
-        aria-label={`Stop watching ${w.path}`}
-        className="p-0 text-faint opacity-0 group-hover:opacity-100 hover:text-ink focus-visible:opacity-100"
+        ref={menuAnchor}
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-label={`Options for ${w.path}`}
+        aria-expanded={menuOpen}
+        aria-haspopup="dialog"
+        className="rounded-sm p-0 text-muted hover:bg-sunken hover:text-ink"
       >
-        ×
+        ⋯
       </button>
+      <Popover anchor={menuAnchor} open={menuOpen} onClose={closeMenu} place="above-right" label={`Options for ${name}`}>
+        <div className="max-w-72 break-words px-2 py-1 font-mono text-muted">{w.path}</div>
+        <div role="menu">
+          <MenuItem disabled={!canPlot} onSelect={() => { onTogglePlot(w.id); closeMenu(); }}>{w.plotted ? "Hide from chart" : "Show on chart"}</MenuItem>
+          <MenuItem onSelect={() => { onRemove(w.id); closeMenu(); }}>Stop watching</MenuItem>
+        </div>
+      </Popover>
       <span className="col-start-2 col-end-4 flex min-w-0 justify-between gap-2 font-mono text-[10.5px] text-faint tabular-nums">
         <span className="truncate">
           {inLane ? (range ? `min ${formatTick(range[0])} · max ${formatTick(range[1])}` : "") : module}
