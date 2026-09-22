@@ -31,6 +31,7 @@ def validate(version):
     if not Path("src-tauri/frontend/index.html").is_file():
         raise SystemExit("Run npm ci && npm run build before packaging")
     files = subprocess.check_output(["cargo", "package", "-p", "tuning-studio", "--list", "--allow-dirty"], text=True).splitlines()
+    files = [name.replace("\\", "/") for name in files]
     if "frontend/index.html" not in files or not any(x.startswith("frontend/assets/") for x in files):
         raise SystemExit("Desktop crate is missing embedded frontend assets")
     print(f"Validated {len(PACKAGES)} packages at {version}")
