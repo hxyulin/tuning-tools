@@ -9,7 +9,7 @@
 //! reaches other clients or the session.
 
 use std::collections::HashMap;
-use std::io::{BufWriter, ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -32,6 +32,8 @@ pub const PROTOCOL_VERSION: u32 = 1;
 const TAP_QUEUE: usize = 1024;
 /// How often the UI hears about clients and drops when nothing else changes
 const STATE_EVERY: Duration = Duration::from_secs(1);
+const IO_RETRY: Duration = Duration::from_millis(5);
+const CLIENT_IDLE: Duration = Duration::from_millis(20);
 
 #[derive(Debug, Clone)]
 pub struct StreamOptions {
@@ -190,6 +192,7 @@ struct Client {
 
 impl Client {
     fn spawn(socket: TcpStream, queue_len: usize) -> std::io::Result<Self> {
+        socket.set_nonblocking(true)?;
         let (queue, lines) = mpsc::sync_channel::<Line>(queue_len.max(2));
         let alive = Arc::new(AtomicBool::new(true));
         let mut write_half = socket.try_clone()?;
@@ -198,7 +201,7 @@ impl Client {
         let writer = std::thread::Builder::new()
             .name("stream-client-write".into())
             .spawn(move || {
-                write_lines(&mut write_half, &lines);
+                write_lines(&mut write_half, &lines, &writer_alive);
                 writer_alive.store(false, Ordering::Relaxed);
                 let _ = write_half.shutdown(Shutdown::Both);
             })?;
@@ -208,7 +211,17 @@ impl Client {
             .spawn(move || {
                 // Input is ignored; reading only notices the client leaving
                 let mut buf = [0u8; 1024];
-                while matches!(read_half.read(&mut buf), Ok(n) if n > 0) {}
+                while reader_alive.load(Ordering::Relaxed) {
+                    match read_half.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(_) => {}
+                        Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                            std::thread::sleep(CLIENT_IDLE);
+                        }
+                        Err(_) => break,
+                    }
+                }
                 reader_alive.store(false, Ordering::Relaxed);
                 let _ = read_half.shutdown(Shutdown::Both);
             })?;
@@ -260,6 +273,7 @@ impl Client {
     }
 
     fn close(self) {
+        self.alive.store(false, Ordering::Relaxed);
         let _ = self.socket.shutdown(Shutdown::Both);
         drop(self.queue);
         let _ = self.writer.join();
@@ -267,19 +281,38 @@ impl Client {
     }
 }
 
-fn write_lines(socket: &mut TcpStream, lines: &Receiver<Line>) {
-    let mut out = BufWriter::new(socket);
-    while let Ok(first) = lines.recv() {
-        // Flush once the queue is drained, so a burst goes out in few writes
-        for line in std::iter::once(first).chain(std::iter::from_fn(|| lines.try_recv().ok())) {
-            if out.write_all(&line).is_err() {
-                return;
+fn write_lines(socket: &mut TcpStream, lines: &Receiver<Line>, alive: &AtomicBool) {
+    while alive.load(Ordering::Relaxed) {
+        match lines.recv_timeout(CLIENT_IDLE) {
+            Ok(line) => {
+                if !write_line(socket, &line, alive) {
+                    return;
+                }
             }
-        }
-        if out.flush().is_err() {
-            return;
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
         }
     }
+}
+
+// Keep the offset across partial writes; dropping a buffered writer must not
+// attempt another blocking flush while the fan-out is joining this thread.
+fn write_line(out: &mut impl Write, mut bytes: &[u8], alive: &AtomicBool) -> bool {
+    while !bytes.is_empty() {
+        if !alive.load(Ordering::Relaxed) {
+            return false;
+        }
+        match out.write(bytes) {
+            Ok(0) => return false,
+            Ok(n) => bytes = &bytes[n..],
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                std::thread::sleep(IO_RETRY);
+            }
+            Err(_) => return false,
+        }
+    }
+    true
 }
 
 fn json_line(value: &Value) -> Line {
@@ -683,6 +716,52 @@ mod tests {
         assert_eq!(client.pending_batches, 11);
         assert!(client.dropped >= 11);
         client.close();
+    }
+
+    #[test]
+    fn partial_writes_resume_without_repeating_bytes() {
+        struct Partial {
+            calls: usize,
+            received: Vec<u8>,
+        }
+        impl Write for Partial {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.calls += 1;
+                match self.calls {
+                    2 => return Err(ErrorKind::WouldBlock.into()),
+                    4 => return Err(ErrorKind::Interrupted.into()),
+                    _ => {}
+                }
+                let n = bytes.len().min(2);
+                self.received.extend_from_slice(&bytes[..n]);
+                Ok(n)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                panic!("socket writes must not depend on flushing a buffer")
+            }
+        }
+        let mut out = Partial {
+            calls: 0,
+            received: Vec::new(),
+        };
+        assert!(write_line(&mut out, b"example\n", &AtomicBool::new(true)));
+        assert_eq!(out.received, b"example\n");
+    }
+
+    #[test]
+    fn cancelling_a_stalled_write_stops_retrying() {
+        struct Stalled<'a>(&'a AtomicBool);
+        impl Write for Stalled<'_> {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                self.0.store(false, Ordering::Relaxed);
+                Err(ErrorKind::WouldBlock.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                unreachable!()
+            }
+        }
+        let alive = AtomicBool::new(true);
+        assert!(!write_line(&mut Stalled(&alive), b"pending", &alive));
     }
 
     #[test]

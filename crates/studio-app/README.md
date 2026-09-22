@@ -46,7 +46,9 @@ fn main() -> Result<(), String> {
 `record` writes MCAP and exports CSV. `stream` exposes an opt-in TCP service,
 bound to loopback by default, with bounded queues per client. Both subscribe to
 `Tap` before the UI sink, so a slow UI does not discard their samples. Their own
-queues remain bounded and expose drops/errors. The TCP stream is not authenticated;
+queues remain bounded and expose drops/errors. Socket workers use cancellable
+nonblocking I/O so disconnecting a stalled client cannot wait indefinitely for
+its pending writes. The TCP stream is not authenticated;
 use its default local binding unless you intend to expose it to your network.
 
 `with_probe_opener` supports custom carriers and deterministic mock tests.

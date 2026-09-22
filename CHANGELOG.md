@@ -18,6 +18,11 @@ for installation, packages and known limits.
   versioned packages for the desktop, server and host libraries.
 - Manually triggered native release builds, binstall archives and crate publication.
 
+### Fixed
+
+- Make TCP client I/O cancellable so a stalled peer cannot hold up stream
+  cleanup while its socket worker is being joined.
+
 ### Compatibility
 
 - Preserve `rm-telemetry` v1 descriptor/protocol compatibility and the v1 trace format.

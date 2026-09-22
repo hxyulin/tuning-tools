@@ -483,10 +483,18 @@ fn stream_serves_every_batch_and_a_stalled_client_holds_nothing_up() {
     let reader = read_lines(TcpStream::connect(address).unwrap(), lines.clone());
     wait_for("clients", || rig.app.app_state().stream.clients == 3);
     let produced_before = rig.sink.ticks.lock().unwrap().len();
-    wait_for("stalled client disconnected with dropped batches", || {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
         let state = rig.app.app_state().stream;
-        state.dropped > 0 && state.clients == 2
-    });
+        if state.dropped > 0 && state.clients == 2 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "stalled-client cleanup timed out: {state:?}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let produced = rig.sink.ticks.lock().unwrap().len() - produced_before;
     assert!(produced > 0, "sampling continued during backpressure");
 
