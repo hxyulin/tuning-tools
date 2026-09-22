@@ -115,3 +115,17 @@ After publication, switch those dependencies to the tested registry versions.
 
 Cargo's [publishing guide](https://doc.rust-lang.org/cargo/reference/publishing.html)
 explains package verification and immutable registry releases.
+
+## VS Code Marketplace releases
+
+Run **Manual VS Code release** to build and test the four platform-specific VSIX
+packages and attach them to the configured GitHub release. Download the packages
+from the release page, then open the
+[Marketplace publisher page](https://marketplace.visualstudio.com/manage).
+Under **Tuning Studio → Update**, upload each platform's VSIX separately using
+the same extension version. No Marketplace token or GitHub secret is required
+for this manual upload process.
+
+Before a new version, update `vscode/package.json`, its lockfile, and the release
+tag in `.github/workflows/vscode-release.yml`. Create the corresponding GitHub
+release before running the workflow.

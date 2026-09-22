@@ -57,10 +57,18 @@ libudev development headers on Linux for probe access. USB devices may need
 platform-specific permissions or drivers. Initial native bundles are unsigned;
 macOS notarization and Windows signing are not configured.
 
-Install the VS Code extension from a platform-specific `.vsix` on the
-[release page](https://github.com/hxyulin/tuning-tools/releases/latest) using
-**Extensions → … → Install from VSIX…**. The native server is bundled;
-see the [extension setup](docs/usage.md#vs-code-extension).
+Install [Tuning Studio from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hxyulin.tuning-studio),
+or run:
+
+```sh
+code --install-extension hxyulin.tuning-studio
+```
+
+VS Code selects the package for your platform and handles updates. The native
+server is bundled; Rust and Node are not required. For manual installation,
+platform-specific `.vsix` files are also available on the
+[release page](https://github.com/hxyulin/tuning-tools/releases/latest).
+See the [extension setup](docs/usage.md#vs-code-extension).
 
 ## First connection
 

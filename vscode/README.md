@@ -6,6 +6,12 @@ and inspect instrumented Embassy task timing.
 
 ## Install
 
+Install [Tuning Studio from Marketplace](https://marketplace.visualstudio.com/items?itemName=hxyulin.tuning-studio),
+or run `code --install-extension hxyulin.tuning-studio`. VS Code selects your
+platform package and handles updates.
+
+For manual installation:
+
 Download the VSIX matching your operating system and architecture from
 [GitHub Releases](https://github.com/hxyulin/tuning-tools/releases/tag/v0.1.0).
 In VS Code, open Extensions, select **… → Install from VSIX…**, and select it.

@@ -6,6 +6,12 @@ Commands below run from the repository root.
 
 ## VS Code extension
 
+Install [Tuning Studio from Marketplace](https://marketplace.visualstudio.com/items?itemName=hxyulin.tuning-studio),
+or run `code --install-extension hxyulin.tuning-studio`. VS Code selects your
+platform package and handles updates.
+
+For manual installation:
+
 Download the `.vsix` matching your platform from
 [GitHub Releases](https://github.com/hxyulin/tuning-tools/releases/latest):
 `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel macOS,
@@ -13,8 +19,7 @@ Download the `.vsix` matching your platform from
 In VS Code, select **Extensions → … → Install from VSIX…** and choose the file.
 The extension bundles `studio-server`; no Rust or Node installation is needed.
 You can also use `code --install-extension path/to/package.vsix`.
-Marketplace publication is separate; GitHub VSIX installs should be updated
-by installing the newer release's VSIX.
+GitHub VSIX installs can be updated by installing the newer release's VSIX.
 
 For development from source:
 
