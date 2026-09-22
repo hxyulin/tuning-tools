@@ -1,0 +1,64 @@
+name: Manual VS Code release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x64
+          - os: windows-latest
+            platform: win32-x64
+          - os: macos-15
+            platform: darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+      - run: npm ci
+      - run: npm run build:webview
+      - run: npm --prefix vscode ci
+      - run: npm --prefix vscode run typecheck
+      - run: npm --prefix vscode run harness
+      - run: cargo build --release --locked -p tuning-studio-server
+      - name: Bundle native server
+        shell: bash
+        run: |
+          mkdir -p vscode/bin
+          cp target/release/studio-server${{ runner.os == 'Windows' && '.exe' || '' }} vscode/bin/
+      - name: Package extension
+        working-directory: vscode
+        run: npx --yes @vscode/vsce@3.6.2 package --no-dependencies --target ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-${{ matrix.platform }}
+          path: vscode/*.vsix
+          if-no-files-found: error
+  upload:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vscode-*
+          path: artifacts
+          merge-multiple: true
+      - name: Attach VSIX packages to existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload v0.1.0 artifacts/*.vsix

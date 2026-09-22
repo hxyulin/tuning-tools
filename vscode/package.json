@@ -1,7 +1,7 @@
 {
   "name": "tuning-studio",
   "displayName": "Tuning Studio",
-  "description": "Live variable watch, tune and telemetry for RoboMaster firmware, over a debug probe or USB",
+  "description": "Live variable inspection, tuning, telemetry and task timelines for embedded firmware",
   "version": "0.1.0",
   "publisher": "hxyulin",
   "license": "MIT",
@@ -219,5 +219,14 @@
     "@types/vscode": "~1.90.0",
     "esbuild": "^0.25.0",
     "typescript": "~5.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hxyulin/tuning-tools.git",
+    "directory": "vscode"
+  },
+  "homepage": "https://github.com/hxyulin/tuning-tools",
+  "bugs": {
+    "url": "https://github.com/hxyulin/tuning-tools/issues"
   }
 }
