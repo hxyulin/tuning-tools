@@ -13,7 +13,7 @@ platform package and handles updates.
 For manual installation:
 
 Download the VSIX matching your operating system and architecture from
-[GitHub Releases](https://github.com/hxyulin/tuning-tools/releases/tag/v0.1.0).
+[GitHub Releases](https://github.com/hxyulin/tuning-tools/releases/tag/v0.1.1).
 In VS Code, open Extensions, select **… → Install from VSIX…**, and select it.
 Each package includes its native `studio-server`; Rust and Node are not required.
 Linux users need libudev and appropriate probe/serial device permissions.

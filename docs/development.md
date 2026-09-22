@@ -28,8 +28,8 @@ lab hardware check against unrelated firmware.
 The browser mock includes tuning descriptors under the `tuning` namespace.
 Run `npm run dev` and open `http://localhost:1420/?host=mock&save=unsupported`
 to exercise volatile-save feedback, or `&save=storage` for a legacy failure.
-These flags affect only the browser mock. The new firmware constructor and
-status code are unreleased; an existing 0.1.0 image still reports its old status
+These flags affect only the browser mock. The firmware constructor and
+status code were added in 0.1.1; an existing 0.1.0 image still reports its old status
 until rebuilt with the new API.
 
 ## Real firmware and probes
@@ -62,7 +62,7 @@ cargo test -p tuning-studio-api
 cargo test -p tuning-studio-trace --all-features
 cargo check -p tuning-studio-api --target thumbv7em-none-eabihf
 cargo check -p tuning-studio-trace --all-features --target thumbv7em-none-eabihf
-python3 scripts/release.py validate --version 0.1.0
+python3 scripts/release.py validate --version 0.1.1
 ```
 
 Install the ARM target with `rustup target add thumbv7em-none-eabihf` first.

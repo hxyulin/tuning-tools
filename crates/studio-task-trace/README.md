@@ -11,7 +11,7 @@ For a published release:
 
 ```toml
 [dependencies]
-tuning-studio-trace = "0.1.0"
+tuning-studio-trace = "0.1.1"
 ```
 
 For unreleased development, use `crates/studio-task-trace` from a checkout, or pin an

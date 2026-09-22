@@ -4922,7 +4922,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuning-studio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4938,11 +4938,11 @@ dependencies = [
 
 [[package]]
 name = "tuning-studio-api"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "tuning-studio-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "mcap",
@@ -4960,7 +4960,7 @@ dependencies = [
 
 [[package]]
 name = "tuning-studio-carriers"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hidapi",
  "libc",
@@ -4976,7 +4976,7 @@ dependencies = [
 
 [[package]]
 name = "tuning-studio-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "defmt-decoder",
  "object 0.38.1",
@@ -4990,7 +4990,7 @@ dependencies = [
 
 [[package]]
 name = "tuning-studio-dwarf"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cpp_demangle",
  "gimli 0.32.3",
@@ -5004,7 +5004,7 @@ dependencies = [
 
 [[package]]
 name = "tuning-studio-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5017,7 +5017,7 @@ dependencies = [
 
 [[package]]
 name = "tuning-studio-trace"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "critical-section",
 ]

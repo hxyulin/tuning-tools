@@ -1,6 +1,6 @@
 [package]
 name = "tuning-studio-carriers"
-version = "0.1.0"
+version = "0.1.1"
 description = "Target memory and byte-stream carriers: probe-rs over SWD, RTT, USB serial, mock"
 edition.workspace = true
 license.workspace = true

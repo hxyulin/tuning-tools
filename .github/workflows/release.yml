@@ -6,7 +6,7 @@ on:
       version:
         description: Version already committed in all Cargo manifests and tauri.conf.json
         required: true
-        default: '0.1.0'
+        default: '0.1.1'
       create_release:
         description: Create a draft GitHub release after all builds pass
         type: boolean
@@ -65,6 +65,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libudev-dev libusb-1.0-0-dev libfuse2
       - run: npm ci
+      - run: npm test
       - run: npm run build
       - name: Validate publishable manifests and embedded assets
         shell: bash

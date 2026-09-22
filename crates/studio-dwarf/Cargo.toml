@@ -1,6 +1,6 @@
 [package]
 name = "tuning-studio-dwarf"
-version = "0.1.0"
+version = "0.1.1"
 description = "ELF symbols and DWARF type information for tuning-tools"
 edition.workspace = true
 license.workspace = true

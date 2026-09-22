@@ -72,3 +72,5 @@ Integration tests spawn the real server with a mock target and exercise framing,
 connections, inspection, recording and streaming through stdin/stdout.
 
 Part of [Tuning Studio](https://github.com/hxyulin/tuning-tools). MIT licensed.
+
+Release 0.1.1: see the [release notes](https://github.com/hxyulin/tuning-tools/blob/main/docs/release-notes/0.1.1.md).

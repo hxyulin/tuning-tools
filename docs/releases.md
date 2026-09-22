@@ -4,9 +4,9 @@ The public package names are `tuning-studio` (desktop), `tuning-studio-api`
 (allocation-free firmware API), and `tuning-studio-trace` (optional task event
 recorder). Supporting host crates use the `tuning-studio-` prefix as well.
 Names were checked on crates.io on 2026-09-22; availability is not a reservation.
-The initial release is being prepared. Track remaining work in the
-[0.1.0 checklist](release-checklist.md) and review the
-[release notes](release-notes/0.1.0.md).
+The current release candidate is 0.1.1. Review its
+[release notes](release-notes/0.1.1.md); the historical
+[0.1.0 checklist](release-checklist.md) records initial packaging work.
 
 ## Firmware integration
 
@@ -85,7 +85,7 @@ Local checks:
 
 ```sh
 npm ci && npm run build
-python3 scripts/release.py validate --version 0.1.0
+python3 scripts/release.py validate --version 0.1.1
 cargo test --workspace --locked
 cargo package -p tuning-studio-api
 cargo package -p tuning-studio-trace
@@ -118,14 +118,16 @@ explains package verification and immutable registry releases.
 
 ## VS Code Marketplace releases
 
-Run **Manual VS Code release** to build and test the four platform-specific VSIX
-packages and attach them to the configured GitHub release. Download the packages
+Run **Manual VS Code release** with the committed version to build and test all
+four platform-specific VSIX packages. Leave **Attach release** off for verification;
+download the workflow artifacts to prepare a draft alongside the desktop bundles.
+Enable **Attach release** only when the matching GitHub release already exists. Download the packages
 from the release page, then open the
 [Marketplace publisher page](https://marketplace.visualstudio.com/manage).
 Under **Tuning Studio → Update**, upload each platform's VSIX separately using
 the same extension version. No Marketplace token or GitHub secret is required
 for this manual upload process.
 
-Before a new version, update `vscode/package.json`, its lockfile, and the release
-tag in `.github/workflows/vscode-release.yml`. Create the corresponding GitHub
-release before running the workflow.
+Before a new version, update `vscode/package.json` and its lockfile. Supply that
+version to the workflow; it validates the package version before building and
+uses `vVERSION` for optional attachment. Existing release assets are never overwritten.

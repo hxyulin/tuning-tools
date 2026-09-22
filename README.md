@@ -7,7 +7,7 @@ without halting or resetting it, or use a firmware-provided USB serial link.
 Tuning Studio works with C, C++ and Rust firmware ELFs. It grew out of RoboMaster
 tooling, but the firmware API has no robot, board, RTOS or transport dependency.
 
-**Initial release in preparation: 0.1.0.** Registry installation commands below
+**Release candidate: 0.1.1.** Registry installation commands below
 become available after publication. Until then, build from this repository.
 The Rust library APIs and editor protocol are evolving; use matching versions.
 
@@ -39,7 +39,7 @@ The Rust library APIs and editor protocol are evolving; use matching versions.
 
 ## Install
 
-Once 0.1.0 is published, download a native installer from
+Once 0.1.1 is published, download a native installer from
 [GitHub Releases](https://github.com/hxyulin/tuning-tools/releases), or use:
 
 ```sh
@@ -153,7 +153,7 @@ small reproducible firmware example when possible. Run the checks above before
 submitting changes. [FRAME.md](FRAME.md) and [reference notes](docs/references/)
 record the original design and its predecessors, `datavis-rs` and `herkules-tools`.
 
-[Release procedure](docs/releases.md) · [0.1.0 release notes](docs/release-notes/0.1.0.md)
+[Release procedure](docs/releases.md) · [0.1.1 release notes](docs/release-notes/0.1.1.md)
 
 Host crates and the trace recorder are MIT licensed. The extracted firmware API
 is MIT OR Apache-2.0; its original notices are included in its package.

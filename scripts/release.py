@@ -30,6 +30,10 @@ def validate(version):
                 raise SystemExit(f"{name}: path dependency without a registry version")
     if not (Path("docs/release-notes") / f"{version}.md").is_file():
         raise SystemExit(f"Missing release notes for {version}")
+    for name in ["package.json", "vscode/package.json", "package-lock.json", "vscode/package-lock.json"]:
+        manifest = json.loads(Path(name).read_text())
+        if manifest["version"] != version or ("packages" in manifest and manifest["packages"][""]["version"] != version):
+            raise SystemExit(f"{name}: version differs from {version}")
     config = json.loads(Path("src-tauri/tauri.conf.json").read_text())
     if config["version"] != version:
         raise SystemExit("Tauri version differs from crate version")

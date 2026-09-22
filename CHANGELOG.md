@@ -1,11 +1,6 @@
 # Changelog
 
-## 0.1.0 — unreleased
-
-Initial release candidate. See the [release notes](docs/release-notes/0.1.0.md)
-for installation, packages and known limits.
-
-### Added
+## 0.1.1
 
 - Bounded tuning sliders with coalesced writes and precise numeric input.
 - Catalog-aware Live Watch entries with typed applied values, units, tuning
@@ -13,7 +8,15 @@ for installation, packages and known limits.
 - `Server::without_storage` and `Status::SaveUnsupported` for volatile firmware;
   Studio disables Save after this explicit response. Legacy storage errors now
   describe unavailable storage or write failure without assuming a flash fault.
+- Integrated Damiao CAN capture and transmit with an isolated native SDK worker.
+- Versioned VSIX release builds can run without uploading to a release.
 
+## 0.1.0 — 2026-09-22
+
+Initial release. See the [release notes](docs/release-notes/0.1.0.md)
+for installation, packages and known limits.
+
+### Added
 
 - Desktop and VS Code interfaces backed by a shared Rust acquisition engine.
 - Live variable trees, pointer following, enum payloads, paged arrays/slices and

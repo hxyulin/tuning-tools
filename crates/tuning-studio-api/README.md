@@ -15,7 +15,7 @@ For a published release:
 
 ```toml
 [dependencies]
-tuning-studio-api = "0.1.0"
+tuning-studio-api = "0.1.1"
 ```
 
 For unreleased development, use a path to `crates/tuning-studio-api` in a local checkout,
@@ -76,7 +76,7 @@ The crate owns neither a transport nor a clock. For each link:
 USB CDC/UART drivers and RTT channel setup remain in firmware. A SAVE response
 is deferred until the caller completes storage. Without that integration, the
 protocol does not magically persist values. For a deliberately volatile demo,
-use `Server::without_storage(&TABLE)` (unreleased API): SAVE returns
+use `Server::without_storage(&TABLE)` (since 0.1.1): SAVE returns
 `Status::SaveUnsupported` (12) immediately and never sets `save_pending()`.
 `Server::new` retains its existing deferred-save behavior. Status 11 remains
 ambiguous for older firmware: storage may be absent or a write may have failed.
