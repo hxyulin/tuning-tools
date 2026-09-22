@@ -13,6 +13,8 @@ The Rust library APIs and editor protocol are evolving; use matching versions.
 
 ## What you can do
 
+- **CAN bus:** configure Damiao adapters, capture/filter raw CAN and CAN FD, record MCAP/CSV, and transmit frames. See [CAN setup](docs/can.md).
+
 - **Live Watch:** expand structs, arrays, enums and pointers; inspect exact 64-bit
   integer values; pin groups of variables and browse large arrays in pages.
 - **Scope:** plot numeric fields, group traces by unit, pause and inspect history.

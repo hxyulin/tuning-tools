@@ -4963,9 +4963,12 @@ name = "tuning-studio-carriers"
 version = "0.1.0"
 dependencies = [
  "hidapi",
+ "libc",
+ "libloading",
  "probe-rs",
  "probe-rs-target",
  "serde",
+ "serde_json",
  "serialport",
  "thiserror 2.0.20",
  "tracing",

@@ -95,6 +95,7 @@ export interface HostStorage {
  * can sit on Tauri commands, webview messages, or a simulation.
  */
 export interface Host {
+  canRequest?(request: import("../can/types").CanRequest): Promise<import("../can/types").CanSnapshot>;
   readonly name: "tauri" | "mock" | "vscode";
   readonly storage: HostStorage;
   startup(): Promise<HostStartup>;

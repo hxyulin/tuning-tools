@@ -4,6 +4,7 @@ import { SymbolTree } from "./elf/SymbolTree";
 import { NodeDetails } from "./elf/NodeDetails";
 import { ConnectDefaults, HostStartup, WatchSeed, host } from "./host";
 import type { ConnectRequest } from "./live/api";
+import { CanPanel } from "./can/CanPanel";
 import { LiveWatch } from "./live/LiveWatch";
 import { ConnectBar } from "./live/ConnectBar";
 import { LogFilter, LogTools, LogView, defaultLogFilter } from "./live/LogConsole";
@@ -56,6 +57,7 @@ const chipTone = {
 };
 
 export default function App() {
+  const [canOpen, setCanOpen] = useState(false);
   const [elf, setElf] = useState<OpenedElf | null>(null);
   const [selected, setSelected] = useState<SymbolNode | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
@@ -254,7 +256,12 @@ export default function App() {
         </div>
       )}
 
-      {elf || linkOnly ? (
+      <div className="flex shrink-0 gap-2 border-b border-rule bg-panel px-3 py-1">
+        <button className={canOpen ? ghostButton : primaryButton} onClick={() => setCanOpen(false)}>Firmware</button>
+        <button className={canOpen ? primaryButton : ghostButton} onClick={() => setCanOpen(true)}>CAN bus</button>
+      </div>
+      <div className={canOpen ? "flex min-h-0 flex-1 flex-col" : "hidden"}><CanPanel /></div>
+      {canOpen ? null : elf || linkOnly ? (
         <main
           className={`grid min-h-0 flex-1 ${side ? "workspace-with-sidebar" : "grid-cols-[minmax(0,1fr)]"}`}
         >

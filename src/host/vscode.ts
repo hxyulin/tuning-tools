@@ -146,6 +146,7 @@ export function createVsCodeHost(): Host {
 
   return {
     name: "vscode",
+    canRequest: (request) => call("can_request", { request }),
     storage,
     startup: async () => {
       const startup = await call<HostStartup>("startup");

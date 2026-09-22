@@ -88,6 +88,9 @@ struct Envelope {
 #[derive(Deserialize)]
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 enum Call {
+    CanRequest {
+        request: studio_app::can::Request,
+    },
     OpenElf {
         path: PathBuf,
     },
@@ -182,12 +185,25 @@ struct Server {
     app: Arc<StudioApp>,
     out: Out,
     mock: bool,
+    read_only: bool,
 }
 
 impl Server {
     fn run(&self, call: Call) -> Result<Value, String> {
         let app = &self.app;
         match call {
+            Call::CanRequest { request } => {
+                use studio_app::can::Request;
+                if self.mock && !matches!(request, Request::Poll { .. } | Request::Disconnect) {
+                    return Err("Physical CAN access is disabled in --mock mode".into());
+                }
+                if self.read_only
+                    && matches!(request, Request::Connect { .. } | Request::Send { .. })
+                {
+                    return Err("CAN connection/transmission is disabled in --read-only mode: the SDK has no silent mode".into());
+                }
+                to_value(app.can_request(request))
+            }
             Call::OpenElf { path } => to_value(app.open_elf(path)),
             Call::SymbolChildren { node, limit } => to_value(app.symbol_children(&node, limit)),
             Call::StartupElfPath {} => to_value(Ok(studio_app::startup_elf_path())),
@@ -326,6 +342,9 @@ fn write_out(rx: Receiver<Vec<u8>>) {
 }
 
 fn main() {
+    if std::env::args().any(|a| a == studio_carriers::can_process::WORKER_FLAG) {
+        studio_carriers::can_process::run_worker_stdio();
+    }
     let mock = std::env::args().any(|a| a == "--mock");
     let read_only = std::env::args().any(|a| a == "--read-only");
     if std::env::args().any(|a| a == "--version") {
@@ -366,6 +385,7 @@ fn main() {
         app: app.clone(),
         out: out.clone(),
         mock,
+        read_only,
     });
     out.json(&json!({
         "type": "ready",
@@ -415,6 +435,7 @@ fn main() {
 
     // Stdin closed: the extension is gone or wants us gone. Let go of the probe
     // first; that also closes a recording. Then close the stream's port.
+    let _ = app.can_request(studio_app::can::Request::Disconnect);
     app.disconnect();
     app.stop_stream();
     if read_only {

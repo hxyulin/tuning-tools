@@ -419,3 +419,25 @@ fn a_killed_server_leaves_a_readable_recording() {
     assert!(csv.truncated);
     assert!(csv.rows >= 1500, "{} rows", csv.rows);
 }
+
+#[test]
+fn can_poll_works_but_mock_server_never_opens_physical_adapters() {
+    let mut client = Client::spawn();
+    let snapshot = client
+        .call(
+            "can_request",
+            json!({"request":{"action":"poll","after":0}}),
+        )
+        .unwrap();
+    assert_eq!(snapshot["connected"], false);
+    assert_eq!(snapshot["frames"], json!([]));
+    let error = client
+        .call(
+            "can_request",
+            json!({"request":{"action":"scan","library":null}}),
+        )
+        .unwrap_err();
+    assert!(error.contains("--mock"));
+    client.stdin.take();
+    assert!(client.child.wait().unwrap().success());
+}

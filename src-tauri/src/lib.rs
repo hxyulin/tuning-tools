@@ -19,6 +19,19 @@ pub fn run() {
             if let Ok(dir) = app.path().app_data_dir() {
                 studio.set_recordings_dir(dir.join("recordings"));
             }
+            if let Ok(dir) = app.path().resource_dir() {
+                let name = if cfg!(target_os = "macos") {
+                    "libdm_device.dylib"
+                } else if cfg!(windows) {
+                    "dm_device.dll"
+                } else {
+                    "libdm_device.so"
+                };
+                let library = dir.join(name);
+                if library.is_file() {
+                    studio.set_can_library(library);
+                }
+            }
             let handle = app.handle().clone();
             studio.set_event_sink(Arc::new(move |event| {
                 let _ = handle.emit(APP_EVENT, event);
@@ -26,6 +39,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::can_request,
             commands::open_elf,
             commands::symbol_children,
             commands::startup_elf_path,
@@ -58,6 +72,7 @@ pub fn run() {
             // Close a recording's file and the stream's port before exiting
             if let tauri::RunEvent::Exit = event {
                 let studio = app.state::<commands::App>();
+                let _ = studio.can_request(studio_app::can::Request::Disconnect);
                 studio.disconnect();
                 studio.stop_stream();
             }

@@ -8,6 +8,7 @@
 //! recording ([`record`]) and the TCP stream ([`stream`]) see every tick whether or
 //! not the UI keeps up. Their state reaches the UI as [`AppEvent`]s.
 
+pub mod can;
 pub mod elf;
 pub mod record;
 pub mod session;
@@ -55,6 +56,7 @@ pub struct AppState {
 
 /// The loaded ELF and the running session, shared by every request.
 pub struct StudioApp {
+    can: can::CanService,
     elf: LoadedElf,
     session: SessionState,
     probe_opener: ProbeOpener,
@@ -82,6 +84,7 @@ impl StudioApp {
     /// Opens the probe carrier with `opener` instead, e.g. a mock target for tests.
     pub fn with_probe_opener(opener: ProbeOpener) -> Self {
         Self {
+            can: can::CanService::default(),
             elf: LoadedElf::default(),
             session: SessionState::default(),
             probe_opener: opener,

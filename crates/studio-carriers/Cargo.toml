@@ -9,6 +9,9 @@ readme = "README.md"
 authors.workspace = true
 
 [dependencies]
+libc = "0.2"
+serde_json = { workspace = true }
+libloading = "0.7"
 probe-rs = "0.32"
 probe-rs-target = "0.32"
 serialport = "4.10"

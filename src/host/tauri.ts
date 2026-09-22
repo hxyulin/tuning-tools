@@ -1,4 +1,4 @@
-import { Channel } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -20,6 +20,7 @@ function toAlignedBuffer(message: ArrayBuffer | Uint8Array | number[]): ArrayBuf
 /** The desktop app: Tauri commands, and channels for the session's streams. */
 export const tauriHost: Host = {
   name: "tauri",
+  canRequest: (request) => invoke("can_request", { request }),
   storage: localStorageBacked,
   async startup() {
     return { elfPath: await elf.startupElfPath(), connect: null, connectDefaults: null, watches: [] };

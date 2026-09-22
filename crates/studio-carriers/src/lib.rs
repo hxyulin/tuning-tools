@@ -7,6 +7,8 @@
 //! owned by one hardware thread; the traits take `&mut self` and nothing here
 //! is shared.
 
+pub mod can;
+pub mod can_process;
 pub mod cortex_m;
 pub mod mock;
 pub mod probe;

@@ -232,3 +232,12 @@ pub async fn inspect_children(
 pub fn node_metadata(node: NodeRef, app: State<'_, App>) -> Result<SymbolNode, String> {
     app.node_metadata(&node)
 }
+
+#[tauri::command]
+pub async fn can_request(
+    request: studio_app::can::Request,
+    app: State<'_, App>,
+) -> Result<studio_app::can::Snapshot, String> {
+    let app = app.inner().clone();
+    blocking(move || app.can_request(request)).await
+}
