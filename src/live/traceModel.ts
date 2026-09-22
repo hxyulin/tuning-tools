@@ -35,3 +35,12 @@ export function ingestTrace(old: TraceModel, snapshot: TraceSnapshot): TraceMode
   next.spans = next.spans.filter((s) => s.end >= end - 30_000).slice(-20_000);
   return next;
 }
+
+/** Clamp navigation to the retained history, allowing empty space for a wider window. */
+export function traceViewport(model: TraceModel, requestedEnd: number | null, width: number) {
+  const latest = model.clockHz ? model.ticks / model.clockHz * 1000 : 0;
+  const earliest = Math.max(0, latest - 30_000, model.spans.reduce((first, span) => Math.min(first, span.start), latest));
+  const minimumEnd = Math.min(latest, earliest + width);
+  const end = Math.max(minimumEnd, Math.min(latest, requestedEnd ?? latest));
+  return { start: end - width, end, earliest };
+}

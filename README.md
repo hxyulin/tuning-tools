@@ -208,8 +208,12 @@ stop polling, and narrow panes place task details below the task table.
 
 **Tasks → Execution timeline** reads the firmware's bounded `STUDIO_TASK_TRACE`
 ring over SWD. Each task has a lane of completed polls; hover for duration and
-wake-to-run latency. Choose a 1–30 second window, freeze the view, or adjust the
-long-poll threshold (amber bars). Click a task name to inspect its locals.
+wake-to-run latency. Choose a 1 ms–30 s window, zoom and pan through retained
+history, or adjust the long-poll threshold (amber bars). Select a bar to freeze
+and inspect its duration, wake latency, start and end; **Focus poll** zooms around
+that event. **Resume** returns to the latest events. Click a task name to inspect
+its locals. See the [timeline investigation guide](docs/task-timeline.md) for
+controls, capture limits and troubleshooting.
 Missing events are reported and never bridged into invented poll durations.
 This works in the desktop app and VS Code; firmware without the buffer retains
 the sampled task view. Interrupt time inside a poll is included in its duration.

@@ -46,3 +46,6 @@ include time in interrupts that preempt the task. Wake latency begins at the
 first captured ready event before a poll; if it was not captured, latency is
 unknown. This is a task event timeline, not an instruction trace or an attribution
 of interrupt/idle execution. Markers narrower than a pixel are widened for visibility.
+
+For host controls, poll details, capture retention and troubleshooting, see the
+[task timeline investigation guide](../../docs/task-timeline.md).
