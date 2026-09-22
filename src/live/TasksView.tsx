@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SymbolNode, Task, TaskPoint, hex, shortLocation } from "../elf/api";
+import { RootNode, SymbolNode, Task, TaskPoint, hex, shortLocation } from "../elf/api";
+import { RowNote, SymbolTree } from "../elf/SymbolTree";
 import { host } from "../host";
 import { Carrier, TaskSnapshot, TaskState, TaskStatus, ValueRead } from "./api";
+import { TaskTimeline } from "./TaskTimeline";
 import { formatValue } from "./format";
 
 /** Between reads of task states and locals; people read these, they do not plot them */
@@ -9,12 +11,18 @@ const POLL_MS = 500;
 
 /** Run `read` every POLL_MS while `live`, one read in flight at a time. */
 function usePoll<T>(live: boolean, read: (() => Promise<T>) | null, deps: unknown[]) {
+  const [visible, setVisible] = useState(!document.hidden);
+  useEffect(() => {
+    const change = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", change);
+    return () => document.removeEventListener("visibilitychange", change);
+  }, []);
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     setValue(null);
     setError(null);
-    if (!live || !read) return;
+    if (!live || !visible || !read) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = () =>
@@ -25,7 +33,7 @@ function usePoll<T>(live: boolean, read: (() => Promise<T>) | null, deps: unknow
             setValue(v);
             setError(null);
           },
-          (e) => !stopped && setError(String(e)),
+          (e) => { if (!stopped) { setValue(null); setError(String(e)); } },
         )
         .finally(() => {
           if (!stopped) timer = setTimeout(poll, POLL_MS);
@@ -36,7 +44,7 @@ function usePoll<T>(live: boolean, read: (() => Promise<T>) | null, deps: unknow
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, ...deps]);
+  }, [live, visible, ...deps]);
   return { value, error };
 }
 
@@ -150,18 +158,22 @@ export function TasksView({ tasks, connected, carrier, onWatch, watched }: Props
   const live = connected && carrier === "probe";
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [byCpu, setByCpu] = useState(false);
+  const [timeline, setTimeline] = useState(false);
   const { value: snapshot, error } = usePoll(live, host.taskStates, [tasks]);
   const statuses = snapshot?.tasks ?? null;
+  const [samples, setSamples] = useState<TaskSnapshot[]>([]);
 
   // Recent reads, for rates; restarted when the ELF, link or clock changes
   const history = useRef<TaskSnapshot[]>([]);
   const [load, setLoad] = useState<Map<string, Load>>(new Map());
   useEffect(() => {
     history.current = [];
+    setSamples([]);
     setLoad(new Map());
   }, [tasks, live]);
   useEffect(() => {
-    if (!snapshot) return;
+    if (!snapshot) { history.current = []; setLoad(new Map()); setSamples([]); return; }
+    setSamples((previous) => [...previous.filter((s) => s.hostUs < snapshot.hostUs && snapshot.hostUs - s.hostUs < 30_000_000), snapshot].slice(-60));
     const kept = history.current.filter(
       (h) => h.clockHz === snapshot.clockHz && snapshot.hostUs - h.hostUs <= MAX_WINDOW_US,
     );
@@ -204,16 +216,17 @@ export function TasksView({ tasks, connected, carrier, onWatch, watched }: Props
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-[12px]">
+    <div className="@container flex h-full min-h-0 flex-col text-[12px]">
       <div className="flex items-center gap-3 border-b border-grid px-3 py-1">
+        <button className="shrink-0 text-accent" onClick={() => setTimeline((v) => !v)}>{timeline ? "Tasks" : "Execution timeline"}</button>
         <span className="min-w-0 truncate text-muted tabular-nums">{summary}</span>
         <span className="ml-auto shrink-0 text-muted tabular-nums" title="Sum of every task's future">
           {bytes(ram)} in futures
         </span>
       </div>
-      <div className={`grid min-h-0 flex-1 ${selected ? "grid-cols-[minmax(0,1fr)_minmax(280px,42%)]" : "grid-cols-1"}`}>
+      {timeline ? <TaskTimeline tasks={tasks} live={live} select={(path) => { setSelectedPath(path); setTimeline(false); }} /> : <div className={`grid min-h-0 flex-1 ${selected ? "grid-rows-2 @min-[900px]:grid-rows-1 @min-[900px]:grid-cols-[minmax(0,1fr)_minmax(280px,42%)]" : "grid-cols-1"}`}>
         <div className="min-h-0 overflow-auto">
-          <table className="w-full table-fixed border-collapse text-[12px]">
+          <table className="min-w-[600px] w-full table-fixed border-collapse text-[12px]">
             <colgroup>
               <col />
               <col className="w-[13%]" />
@@ -269,6 +282,9 @@ export function TasksView({ tasks, connected, carrier, onWatch, watched }: Props
                   <tr
                     key={t.root.path}
                     aria-selected={isSelected}
+                    tabIndex={0}
+                    aria-label={`${t.root.label}: ${state.text || "not connected"}`}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedPath(isSelected ? null : t.root.path); } }}
                     onClick={() => setSelectedPath(isSelected ? null : t.root.path)}
                     className={`cursor-default border-b border-grid ${isSelected ? "bg-accent-wash" : "hover:bg-panel"}`}
                   >
@@ -287,12 +303,12 @@ export function TasksView({ tasks, connected, carrier, onWatch, watched }: Props
                     </td>
                     {hasStats && (
                       <>
-                        <td className="py-1 pr-2 text-right font-mono tabular-nums">
+                        <td className="whitespace-nowrap py-1 pr-2 text-right font-mono tabular-nums">
                           {l && counted && (
                             <>
-                              <span aria-hidden className="mr-1.5 inline-block h-1.5 w-[40%] overflow-hidden rounded-[1px] bg-grid align-middle">
-                                {/* Full at 20 %: a control task above that is worth a look */}
-                                <span className="block h-full bg-muted" style={{ width: `${Math.min(l.cpu * 5, 100)}%` }} />
+                              <span aria-hidden className="mr-1.5 inline-block h-1.5 w-[20%] overflow-hidden rounded-[1px] bg-grid align-middle">
+                                {/* Same 0–100% scale for every task. */}
+                                <span className="block h-full bg-muted" style={{ width: `${Math.min(l.cpu, 100)}%` }} />
                               </span>
                               {percent(l.cpu)}
                             </>
@@ -321,6 +337,7 @@ export function TasksView({ tasks, connected, carrier, onWatch, watched }: Props
           <TaskDetail
             key={selected.root.path}
             task={selected}
+            samples={samples}
             state={byPath.get(selected.root.path)?.state ?? null}
             load={history.current.length > 1 ? (load.get(selected.root.path) ?? null) : null}
             live={live}
@@ -329,13 +346,14 @@ export function TasksView({ tasks, connected, carrier, onWatch, watched }: Props
             onClose={() => setSelectedPath(null)}
           />
         )}
-      </div>
+      </div>}
     </div>
   );
 }
 
 interface DetailProps {
   task: Task;
+  samples: TaskSnapshot[];
   state: TaskState | null;
   load: Load | null;
   live: boolean;
@@ -344,16 +362,33 @@ interface DetailProps {
   onClose: () => void;
 }
 
-function TaskDetail({ task, state, load, live, onWatch, watched, onClose }: DetailProps) {
+function TaskDetail({ task, samples, state, load, live, onWatch, watched, onClose }: DetailProps) {
   const points = task.states.filter(hasLocals);
   const current = state?.spawned ? state.at : null;
   // Follow the task from await to await until a state is picked by hand
   const [pinned, setPinned] = useState<string | null>(null);
   const shown = points.find((p) => p.path === (pinned ?? current?.path)) ?? points[0] ?? null;
   const stale = live && shown !== null && current?.path !== shown.path;
+  const observations = useMemo(() => {
+    const runs: { key: string; label: string; title: string; count: number; point: TaskPoint | null; color: string }[] = [];
+    for (const sample of samples) {
+      const status = sample.tasks.find((s) => s.path === task.root.path);
+      const description = describe(status);
+      const point = status?.state?.spawned ? status.state.at : null;
+      const key = `${description.text}:${point?.path ?? ""}`;
+      const previous = runs[runs.length - 1];
+      if (previous?.key === key) { previous.count++; continue; }
+      const age = ((samples[samples.length - 1].hostUs - sample.hostUs) / 1e6).toFixed(1);
+      const index = task.states.findIndex((p) => p.path === point?.path);
+      runs.push({ key, count: 1, point, label: point?.label ?? description.text,
+        title: `${age}s ago: ${description.text}${point ? ` · ${fullLocation(point)} (${point.label})` : ""}`,
+        color: description.tone === "danger" ? "bg-danger/30" : status?.state?.queued ? "bg-warn/30" : status?.state?.spawned ? index % 2 ? "bg-accent/30" : "bg-accent/60" : "bg-grid" });
+    }
+    return runs;
+  }, [samples, task]);
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-rule">
+    <aside className="flex min-h-0 flex-col border-t @min-[900px]:border-t-0 @min-[900px]:border-l border-rule">
       <div className="flex items-start gap-2 border-b border-rule px-3 py-2">
         <div className="min-w-0 flex-1">
           <h3 className="truncate font-mono text-[13px]" title={task.root.path}>
@@ -377,7 +412,22 @@ function TaskDetail({ task, state, load, live, onWatch, watched, onClose }: Deta
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <h4 className="px-3 pt-2 pb-1 text-[11px] text-muted">States</h4>
+        {samples.length > 0 && <section className="border-b border-rule px-3 py-2" aria-label="Sampled task history">
+          <div className="mb-1 flex justify-between text-[11px] text-muted"><span>Recent observations</span><span>now →</span></div>
+          <ol className="flex h-5 gap-px" aria-label="Task state samples">
+            {observations.map((run, index) => <li key={index} className="min-w-0" style={{ flexGrow: run.count, flexBasis: 0 }}><button
+              title={run.title} aria-label={run.title}
+              disabled={!run.point || !hasLocals(run.point)}
+              onClick={() => setPinned(run.point?.path === current?.path ? null : run.point?.path ?? null)}
+              className={`h-full w-full min-w-0 truncate rounded-[1px] px-0.5 font-mono text-[9px] ${run.color}`}
+            >{run.label}</button></li>)}
+          </ol>
+          <p className="mt-1 text-[10px] text-muted">500 ms samples, not a scheduler trace. Brief transitions may be missed.</p>
+        </section>}
+        <div className="flex items-center justify-between px-3 pt-2 pb-1">
+          <h4 className="text-[11px] text-muted">Await points</h4>
+          {pinned ? <button className="text-accent hover:underline" onClick={() => setPinned(null)}>Follow current state</button> : <span className="text-[11px] text-muted">Following current state</span>}
+        </div>
         <ul className="px-1.5">
           {points.map((p) => {
             const isCurrent = p.path === current?.path;
@@ -432,70 +482,41 @@ interface LocalsProps {
 }
 
 function Locals({ point, live, stale, onWatch, watched }: LocalsProps) {
-  const [leaves, setLeaves] = useState<SymbolNode[] | null>(null);
+  const [roots, setRoots] = useState<RootNode[]>([]);
+  const [selected, setSelected] = useState<SymbolNode | null>(null);
+  const [visible, setVisible] = useState<SymbolNode[]>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    host.watchableLeaves(point.ref).then(setLeaves, (e) => setError(String(e)));
+    let cancelled = false;
+    setRoots([]);
+    setError(null);
+    host.symbolChildren(point.ref).then((children) => {
+      if (!cancelled) setRoots(children.nodes.map((node) => ({ ...node, segments: [node.label], section: "", readOnly: false, internal: false })));
+    }, (e) => { if (!cancelled) setError(String(e)); });
+    return () => { cancelled = true; };
   }, [point.ref]);
-  const read = useMemo(() => (leaves?.length ? () => host.readValues(leaves.map((l) => l.ref)) : null), [leaves]);
-  const { value: values, error: readError } = usePoll<ValueRead[]>(live, read, [read]);
-
+  const nodes = useMemo(() => visible.slice(0, 128), [visible]);
+  const read = useMemo(() => nodes.length ? () => host.readValues(nodes.map((n) => n.ref)) : null, [nodes]);
+  const { value: values, error: readError } = usePoll<ValueRead[]>(live && !stale, read, [read]);
+  const notes = useMemo(() => new Map<string, RowNote>(visible.map((node, i) => {
+    const value = values?.[i];
+    return [node.path, {
+      text: stale ? "inactive" : i >= 128 ? "limit reached" : value?.error ? "unreadable" : value?.text ?? (value?.value == null ? "—" : node.kind === "pointer" ? hex(value.value) : formatValue(value.value, node.scalar)),
+      title: value?.error ?? node.typeName,
+      tone: value?.error ? "danger" : stale ? "muted" : "ink",
+    }];
+  })), [visible, values, stale]);
+  const variantKey = JSON.stringify(visible.map((node, i) => [node.path, values?.[i]?.activeVariant ?? null]));
+  const variants = useMemo(() => new Map<string, string | null>(JSON.parse(variantKey)), [variantKey]);
   const where = point.label === "Unresumed" ? "Arguments, before the first poll" : `Kept across ${point.location ? shortLocation(point.location) : point.label}`;
-  const name = (leaf: SymbolNode) => leaf.path.slice(point.path.length).replace(/^\./, "") || leaf.label;
-  const onlyHere = point.label === "Unresumed" ? "before the task's first poll" : `while the task waits at ${fullLocation(point)}`;
-
-  return (
-    <section className="mt-2 border-t border-rule">
-      <h4 className="px-3 pt-2 pb-1 text-[11px] text-muted">{where}</h4>
-      {stale && (
-        <p className="px-3 pb-1 text-[11px] text-warn">
-          The task is not in this state; these bytes hold another state's data right now.
-        </p>
-      )}
-      {error && <p className="px-3 text-danger">{error}</p>}
-      {readError && <p className="px-3 text-danger">Could not read: {readError}</p>}
-      {leaves && leaves.length === 0 && <p className="px-3 pb-2 text-muted">No numbers are kept here.</p>}
-      {leaves && leaves.length > 0 && (
-        <table className="w-full table-fixed border-collapse text-[12px]">
-          <colgroup>
-            <col />
-            <col className="w-[36%]" />
-            <col className="w-16" />
-          </colgroup>
-          <tbody>
-            {leaves.map((leaf, i) => {
-              const read = values?.[i];
-              const isWatched = watched.has(leaf.path);
-              return (
-                <tr key={leaf.path} className="group border-b border-grid hover:bg-panel">
-                  <td className="truncate py-0.5 pl-3 font-mono" title={`${leaf.path}\n${leaf.typeName}`}>
-                    {name(leaf)}
-                  </td>
-                  <td
-                    className={`truncate py-0.5 pl-2 text-right font-mono tabular-nums ${
-                      read?.error ? "text-danger" : stale ? "text-muted" : ""
-                    }`}
-                    title={read?.error ?? undefined}
-                  >
-                    {!live ? "" : read?.error ? "unreadable" : read ? formatValue(read.value ?? NaN, leaf.scalar) : ""}
-                  </td>
-                  <td className="py-0.5 pr-2 text-right">
-                    <button
-                      onClick={() => onWatch(leaf)}
-                      title={`Watch and plot this value. It only means something ${onlyHere}.`}
-                      className={`rounded-sm px-1.5 text-[11px] hover:bg-panel ${
-                        isWatched ? "text-accent" : "invisible text-muted group-hover:visible"
-                      }`}
-                    >
-                      {isWatched ? "Watching" : "Watch"}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </section>
-  );
+  return <section className="mt-2 border-t border-rule">
+    <h4 className="px-3 pt-2 pb-1 text-[11px] text-muted">{where}</h4>
+    {stale && <p className="px-3 pb-1 text-[11px] text-warn">This state is inactive. Values are hidden because its storage may belong to another state.</p>}
+    {error && <p className="px-3 text-danger">{error}</p>}
+    {readError && <p className="px-3 text-danger">Could not read: {readError}</p>}
+    {roots.length > 0 ? <div className="h-64 min-h-0">
+      <SymbolTree roots={roots} live={live && !stale} activeVariants={variants} selected={selected} onSelect={setSelected} onWatch={stale ? undefined : onWatch} watched={watched} filters={false} label="Task locals" notes={notes} onVisibleNodes={setVisible} />
+    </div> : !error && <p className="px-3 pb-2 text-muted">No locals available in this state's debug information.</p>}
+    {!stale && live && <p className="px-3 py-1 text-[10px] text-muted">State and locals are sampled separately while the target runs.</p>}
+  </section>;
 }

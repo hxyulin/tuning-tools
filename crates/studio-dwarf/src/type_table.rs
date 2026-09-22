@@ -182,6 +182,10 @@ pub enum ForwardDeclKind {
 pub enum PrimitiveDef {
     Bool,
     Char,
+    /// Unicode code unit; unlike C char, its DWARF byte size is significant.
+    UnicodeChar {
+        size: u64,
+    },
     SignedChar,
     UnsignedChar,
     Short,
@@ -220,7 +224,7 @@ impl PrimitiveDef {
             PrimitiveDef::LongLong | PrimitiveDef::UnsignedLongLong | PrimitiveDef::Double => 8,
             PrimitiveDef::LongDouble => 16,
             PrimitiveDef::SizedInt { size, .. } => *size,
-            PrimitiveDef::SizedFloat { size } => *size,
+            PrimitiveDef::SizedFloat { size } | PrimitiveDef::UnicodeChar { size } => *size,
         }
     }
 
@@ -228,7 +232,7 @@ impl PrimitiveDef {
     pub fn name(&self) -> &'static str {
         match self {
             PrimitiveDef::Bool => "bool",
-            PrimitiveDef::Char => "char",
+            PrimitiveDef::Char | PrimitiveDef::UnicodeChar { .. } => "char",
             PrimitiveDef::SignedChar => "signed char",
             PrimitiveDef::UnsignedChar => "unsigned char",
             PrimitiveDef::Short => "short",
@@ -279,6 +283,12 @@ impl PrimitiveDef {
     /// Convert to VariableType
     pub fn to_variable_type(&self) -> VariableType {
         match self {
+            PrimitiveDef::UnicodeChar { size } => match size {
+                1 => VariableType::U8,
+                2 => VariableType::U16,
+                4 => VariableType::U32,
+                _ => VariableType::Raw(*size as usize),
+            },
             PrimitiveDef::Bool => VariableType::Bool,
             PrimitiveDef::Char | PrimitiveDef::SignedChar => VariableType::I8,
             PrimitiveDef::UnsignedChar => VariableType::U8,

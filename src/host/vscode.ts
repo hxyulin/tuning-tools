@@ -170,6 +170,8 @@ export function createVsCodeHost(): Host {
     pickElf: () => call<string | null>("pick_elf"),
     openElf: (path) => call("open_elf", { path }),
     symbolChildren: (node, limit) => call("symbol_children", { node, limit: limit ?? null }),
+    inspectChildren: (node, offset, limit, live) => call("inspect_children", {node, offset, limit, live}),
+    nodeMetadata: (node) => call("node_metadata", {node}),
     watchableLeaves: (node) => call("watchable_leaves", { node }),
     listProbes: () => call("list_probes"),
     listSerialPorts: () => call("list_serial_ports"),
@@ -192,6 +194,7 @@ export function createVsCodeHost(): Host {
     requestValue: (id, value) => call("session_request", { id, value }),
     saveValues: () => call("session_save"),
     discardValues: () => call("session_discard"),
+    taskTrace: () => call("session_task_trace"),
     taskStates: () => call("session_task_states"),
     readValues: (nodes) => call("session_read_values", { nodes }),
     // The extension adds the workspace's recordings directory

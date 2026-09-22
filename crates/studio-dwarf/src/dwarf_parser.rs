@@ -498,7 +498,7 @@ impl<'a> DwarfParser<'a, Reader<'a>> {
                 16 => PrimitiveDef::LongDouble,
                 _ => PrimitiveDef::SizedFloat { size },
             },
-            Some(gimli::DW_ATE_UTF) => PrimitiveDef::Char, // Unicode char
+            Some(gimli::DW_ATE_UTF) => PrimitiveDef::UnicodeChar { size },
             _ => {
                 // Try to infer from name
                 match name.as_str() {

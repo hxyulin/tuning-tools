@@ -238,6 +238,8 @@ export const mockHost: Host = {
     const nodes = childrenOf(node);
     return { nodes, total: nodes.length };
   },
+  async nodeMetadata(node) { const found = nodeAt(node); if (!found) throw new Error("Symbol no longer exists"); return found; },
+  async inspectChildren(node, offset, limit) { const nodes = childrenOf(node); return {nodes: nodes.slice(offset, offset+limit), total: nodes.length}; },
   async watchableLeaves(node) {
     const found = nodeAt(node);
     if (!found) throw new Error("Not in this ELF");
@@ -360,6 +362,7 @@ export const mockHost: Host = {
       }),
     };
   },
+  async taskTrace() { return null; },
   async readValues(refs) {
     return refs.map((ref) => {
       const node = nodeAt(ref);

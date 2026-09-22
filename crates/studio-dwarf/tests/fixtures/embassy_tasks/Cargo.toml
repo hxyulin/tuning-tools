@@ -8,6 +8,7 @@ publish = false
 [workspace]
 
 [dependencies]
+studio-task-trace = { path = "../../../../studio-task-trace", optional = true }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread", "trace"] }
@@ -17,6 +18,7 @@ embassy-sync = "0.8"
 [features]
 default = ["embassy"]
 embassy = []
+trace = ["dep:studio-task-trace"]
 
 [profile.release]
 debug = 2
@@ -29,3 +31,8 @@ panic = "abort"
 # compile unit, which instantiates them
 [profile.release.package."*"]
 debug = 0
+
+[[bin]]
+name = "inspector_lab"
+path = "src/bin/inspector_lab.rs"
+required-features = ["trace"]

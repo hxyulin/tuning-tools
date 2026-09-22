@@ -280,21 +280,26 @@ mod hooks {
 
     #[unsafe(no_mangle)]
     pub fn _embassy_trace_task_end(_executor: u32, task: u32) {
+        #[cfg(feature = "trace")] studio_task_trace::record(task, studio_task_trace::EXIT, cycles::now);
         stats().task_end(task);
     }
 
     #[unsafe(no_mangle)]
     pub fn _embassy_trace_task_exec_begin(_executor: u32, task: u32) {
+        #[cfg(feature = "trace")] studio_task_trace::record(task, studio_task_trace::BEGIN, cycles::now);
         stats().poll_begin(task, cycles::now());
     }
 
     #[unsafe(no_mangle)]
     pub fn _embassy_trace_task_exec_end(_executor: u32, _task: u32) {
+        #[cfg(feature = "trace")] studio_task_trace::record(_task, studio_task_trace::END, cycles::now);
         stats().poll_end(cycles::now());
     }
 
     #[unsafe(no_mangle)]
-    pub fn _embassy_trace_task_ready_begin(_executor: u32, _task: u32) {}
+    pub fn _embassy_trace_task_ready_begin(_executor: u32, _task: u32) {
+        #[cfg(feature = "trace")] studio_task_trace::record(_task, studio_task_trace::READY, cycles::now);
+    }
 
     #[unsafe(no_mangle)]
     pub fn _embassy_trace_poll_start(_executor: u32) {}

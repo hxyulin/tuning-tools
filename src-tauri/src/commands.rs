@@ -208,3 +208,27 @@ pub async fn stream_stop(app: State<'_, App>) -> Result<StreamState, String> {
 pub fn app_state(app: State<'_, App>) -> AppState {
     app.app_state()
 }
+
+#[tauri::command]
+pub async fn session_task_trace(
+    app: State<'_, App>,
+) -> Result<Option<studio_dwarf::task_trace::TraceSnapshot>, String> {
+    let app = app.inner().clone();
+    blocking(move || app.task_trace()).await
+}
+
+#[tauri::command]
+pub async fn inspect_children(
+    node: NodeRef,
+    offset: u64,
+    limit: usize,
+    live: bool,
+    app: State<'_, App>,
+) -> Result<Children, String> {
+    let app = app.inner().clone();
+    blocking(move || app.inspect_children(&node, offset, limit, live)).await
+}
+#[tauri::command]
+pub fn node_metadata(node: NodeRef, app: State<'_, App>) -> Result<SymbolNode, String> {
+    app.node_metadata(&node)
+}

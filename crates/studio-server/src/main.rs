@@ -122,6 +122,16 @@ enum Call {
         node: NodeRef,
     },
     SessionTaskStates {},
+    SessionTaskTrace {},
+    InspectChildren {
+        node: NodeRef,
+        offset: u64,
+        limit: usize,
+        live: bool,
+    },
+    NodeMetadata {
+        node: NodeRef,
+    },
     SessionReadValues {
         nodes: Vec<NodeRef>,
     },
@@ -205,6 +215,14 @@ impl Server {
             Call::SessionDiscard {} => to_value(app.discard()),
             Call::SessionSave {} => to_value(app.save()),
             Call::WatchableLeaves { node } => to_value(app.watchable_leaves(&node)),
+            Call::InspectChildren {
+                node,
+                offset,
+                limit,
+                live,
+            } => to_value(app.inspect_children(&node, offset, limit, live)),
+            Call::NodeMetadata { node } => to_value(app.node_metadata(&node)),
+            Call::SessionTaskTrace {} => to_value(app.task_trace()),
             Call::SessionTaskStates {} => to_value(app.task_states()),
             Call::SessionReadValues { nodes } => to_value(app.read_values(&nodes)),
             Call::RecordingStart { path, dir } => to_value(app.start_recording(path, dir)),

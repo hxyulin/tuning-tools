@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/studio-dwarf",
+  "crates/studio-task-trace",
   "crates/studio-carriers",
   "crates/studio-core",
   "crates/studio-app",

@@ -183,6 +183,7 @@ pub struct ValueRead {
     /// `None` when it could not be read
     value: Option<f64>,
     text: Option<String>,
+    active_variant: Option<String>,
     error: Option<String>,
 }
 
@@ -502,8 +503,93 @@ impl StudioApp {
         })
     }
 
+    pub fn task_trace(&self) -> Result<Option<studio_dwarf::task_trace::TraceSnapshot>, String> {
+        let elf = self.elf.current()?;
+        let Some(symbol) = elf.find_symbol("STUDIO_TASK_TRACE") else {
+            return Ok(None);
+        };
+        if !elf.is_little_endian || symbol.size < 20 || symbol.size > 20 + 8192 * 24 {
+            return Err("unsupported trace layout".into());
+        }
+        let bytes = self.read_once(vec![(symbol.address, symbol.size as usize)])?;
+        studio_dwarf::task_trace::decode(&bytes[0]).map(Some)
+    }
+
     /// Read each numeric node once, outside the sampled watch set.
+    pub fn inspect_children(
+        &self,
+        node: &NodeRef,
+        offset: u64,
+        limit: usize,
+        live: bool,
+    ) -> Result<tree::Children, String> {
+        let elf = self.elf.current()?;
+        tree::children_page(
+            &elf,
+            node,
+            offset,
+            limit.min(128),
+            &mut |a, n| {
+                if !live {
+                    return Ok(0);
+                }
+                if n == 0 || n > 8 {
+                    return Err("invalid word size".into());
+                }
+                let data = self.read_once(vec![(a, n)])?;
+                let mut raw = [0u8; 8];
+                if elf.is_little_endian {
+                    raw[..n].copy_from_slice(&data[0]);
+                    Ok(u64::from_le_bytes(raw))
+                } else {
+                    raw[8 - n..].copy_from_slice(&data[0]);
+                    Ok(u64::from_be_bytes(raw))
+                }
+            },
+            live,
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn node_metadata(&self, node: &NodeRef) -> Result<SymbolNode, String> {
+        tree::metadata_node(self.elf.current()?.as_ref(), node).map_err(|e| e.to_string())
+    }
+
     pub fn read_values(&self, nodes: &[NodeRef]) -> Result<Vec<ValueRead>, String> {
+        let mut values = self.read_numeric_values(nodes)?;
+        let elf = self.elf.current()?;
+        let mut cache = std::collections::HashMap::new();
+        for (node, value) in nodes.iter().zip(&mut values) {
+            let metadata = tree::metadata_node(&elf, node);
+            if metadata.as_ref().is_ok_and(|n| {
+                n.sequence
+                    || matches!(n.kind, NodeKind::Enum | NodeKind::TaggedEnum)
+                    || n.type_name == "char"
+            }) {
+                match tree::preview(&elf, node, &mut |a, n| {
+                    cache
+                        .entry((a, n))
+                        .or_insert_with(|| self.read_once(vec![(a, n)]).map(|mut b| b.remove(0)))
+                        .clone()
+                }) {
+                    Ok(Some(preview)) => {
+                        value.text = Some(preview.text);
+                        value.active_variant = preview.active_variant;
+                        value.error = None;
+                    }
+                    Err(error) => {
+                        value.value = None;
+                        value.text = None;
+                        value.error = Some(error);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(values)
+    }
+
+    fn read_numeric_values(&self, nodes: &[NodeRef]) -> Result<Vec<ValueRead>, String> {
         if nodes.len() > MAX_LEAVES {
             return Err(format!("read at most {MAX_LEAVES} values per request"));
         }
@@ -513,6 +599,9 @@ impl StudioApp {
             pointers
                 .entry((address, len))
                 .or_insert_with(|| {
+                    if len == 0 || len > 8 {
+                        return Err("invalid word size".into());
+                    }
                     let bytes = self.read_once(vec![(address, len)])?;
                     let b = bytes
                         .first()
@@ -529,11 +618,7 @@ impl StudioApp {
                     } else {
                         u64::from_be_bytes(raw)
                     };
-                    if value == 0 {
-                        Err("null pointer".into())
-                    } else {
-                        Ok(value)
-                    }
+                    Ok(value)
                 })
                 .clone()
         };
@@ -585,13 +670,15 @@ impl StudioApp {
                                 .ok_or("short read")?;
                             Ok(ValueRead {
                                 value: Some(decode(&item, bytes)).filter(|v| v.is_finite()),
-                                text: exact_integer(&item, bytes),
+                                text: inspector_text(&item, bytes),
+                                active_variant: None,
                                 error: None,
                             })
                         });
                         read.unwrap_or_else(|error| ValueRead {
                             value: None,
                             text: None,
+                            active_variant: None,
                             error: Some(error),
                         })
                     })
@@ -610,18 +697,21 @@ impl StudioApp {
                 }) {
                     Some(b) => ValueRead {
                         value: Some(decode(&item, b)).filter(|v| v.is_finite()),
-                        text: exact_integer(&item, b),
+                        text: inspector_text(&item, b),
+                        active_variant: None,
                         error: None,
                     },
                     _ => ValueRead {
                         value: None,
                         text: None,
+                        active_variant: None,
                         error: Some("short read".into()),
                     },
                 },
                 Err(error) => ValueRead {
                     value: None,
                     text: None,
+                    active_variant: None,
                     error: Some(error),
                 },
             })
@@ -784,13 +874,27 @@ fn collect_leaves(
     Ok(())
 }
 
-/// Preserve integers that cannot round-trip through JSON's f64 number model.
-fn exact_integer(item: &ReadItem, bytes: &[u8]) -> Option<String> {
+/// Preserve exact integers and float spellings that JSON numbers cannot carry.
+fn inspector_text(item: &ReadItem, bytes: &[u8]) -> Option<String> {
     use studio_dwarf::VariableType;
     if item.bit_size.is_some() || item.bit_offset.is_some() {
         return None;
     }
     match item.scalar {
+        VariableType::F32 | VariableType::F64 => {
+            let value = decode(item, bytes);
+            if value.is_nan() {
+                Some("NaN".into())
+            } else if value == f64::INFINITY {
+                Some("Infinity".into())
+            } else if value == f64::NEG_INFINITY {
+                Some("-Infinity".into())
+            } else if value == 0.0 && value.is_sign_negative() {
+                Some("-0".into())
+            } else {
+                None
+            }
+        }
         VariableType::U64 => Some(u64::from_le_bytes(bytes.try_into().ok()?).to_string()),
         VariableType::I64 => Some(i64::from_le_bytes(bytes.try_into().ok()?).to_string()),
         _ => None,
@@ -812,14 +916,14 @@ mod inspector_tests {
             bit_size: None,
         };
         assert_eq!(
-            exact_integer(&item, &u64::MAX.to_le_bytes()).as_deref(),
+            inspector_text(&item, &u64::MAX.to_le_bytes()).as_deref(),
             Some("18446744073709551615")
         );
         item.scalar = VariableType::I64;
         assert_eq!(
-            exact_integer(&item, &i64::MIN.to_le_bytes()).as_deref(),
+            inspector_text(&item, &i64::MIN.to_le_bytes()).as_deref(),
             Some("-9223372036854775808")
         );
-        assert_eq!(exact_integer(&item, &[]), None);
+        assert_eq!(inspector_text(&item, &[]), None);
     }
 }

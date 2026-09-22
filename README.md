@@ -167,12 +167,54 @@ Pointer-derived fields are inspection-only: plotting still requires fixed
 addresses. Reads occur while the target runs, so a changing pointer and its
 pointee are not an atomic snapshot.
 
-Ordinary 64-bit integers display exact decimal text; plots still use floating-point
-numbers. Inspection is read-only, arrays currently show up to 256 elements, and
-tagged enum payloads are not automatically filtered by their active variant.
+Ordinary 64-bit integers display exact decimal text; NaN, Infinity and negative
+zero have explicit readouts. Plots still use floating-point numbers. Enum values
+show names and Live Watch displays only the active payload (including niches).
+Inactive payload reads fail explicitly. Rust borrowed `&str` previews are bounded
+to 256 bytes; borrowed slices expose their length and indexed elements. Other
+container layouts, such as `String` and `Vec`, remain browsable as DWARF structs.
+
+Arrays and slices have 64-element pages with Previous/Next and an index jump
+(press Enter). Slice indices are bounds-checked on every read; use Refresh to
+update the page after a slice's length changes. **Pin** adds the selected field
+or subtree to a named, persistent watch group. **Pinned groups** switches to that
+focused set; unavailable symbols remain saved for their original ELF. Changed
+readouts briefly highlight. Inspection remains read-only.
 USB targets continue to expose firmware values through Tune. Inspector reads
 are separate from recorded plot samples.
 
 Validation: `cargo test -p studio-app --test live_watch` checks coalescing,
 request order, duplicate/missing symbols, changing values, pointer retargeting,
 shared/nested pointers, nulls, depth limits and disconnects.
+
+
+### Inspector test firmware and task history
+
+[Inspector lab](crates/studio-dwarf/tests/fixtures/README.md#inspector_labelf)
+provides a runnable STM32H723 binary and repeatable mock/hardware checks for
+complex types, pointer chains, large arrays and Embassy task states. Run
+`npm --prefix vscode run test:inspector` after building `studio-server`.
+
+The Embassy task detail view shows up to 30 seconds of sampled await-state
+history. Select a history block or await point to inspect its type layout; use
+**Follow current state** to resume following the live task. Locals expand as a
+tree, including structs, arrays and pointers. Inactive-state values are hidden
+and are not polled. Task states and locals are separate running-target samples,
+so brief transitions can be missed; this is not an execution trace. Hidden pages
+stop polling, and narrow panes place task details below the task table.
+
+
+### Task execution timeline
+
+**Tasks → Execution timeline** reads the firmware's bounded `STUDIO_TASK_TRACE`
+ring over SWD. Each task has a lane of completed polls; hover for duration and
+wake-to-run latency. Choose a 1–30 second window, freeze the view, or adjust the
+long-poll threshold (amber bars). Click a task name to inspect its locals.
+Missing events are reported and never bridged into invented poll durations.
+This works in the desktop app and VS Code; firmware without the buffer retains
+the sampled task view. Interrupt time inside a poll is included in its duration.
+
+The included [studio-task-trace firmware crate](crates/studio-task-trace/README.md)
+is allocation-free and has integration instructions. The inspector lab links it
+already. `npm --prefix vscode run test:trace` checks reconstruction, loss, reset,
+and latency; `test:inspector -- --hardware` checks actual timestamped polls.

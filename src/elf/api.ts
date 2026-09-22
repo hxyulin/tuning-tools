@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type Step =
+  | { kind: "sliceIndex"; value: number }
   | { kind: "deref" }
   | { kind: "member"; value: string }
   | { kind: "index"; value: number }
@@ -42,6 +43,7 @@ export interface SymbolNode {
   wrapper: string | null;
   kind: NodeKind;
   scalar: Scalar | null;
+  sequence?: boolean;
   expandable: boolean;
   childCount: number | null;
   readable: boolean;
@@ -193,3 +195,6 @@ export function scalarName(s: Scalar): string {
 export function startupElfPath(): Promise<string | null> {
   return invoke("startup_elf_path");
 }
+
+export function inspectChildren(node: NodeRef, offset: number, limit: number, live: boolean): Promise<Children> { return invoke("inspect_children", {node, offset, limit, live}); }
+export function nodeMetadata(node: NodeRef): Promise<SymbolNode> { return invoke("node_metadata", {node}); }

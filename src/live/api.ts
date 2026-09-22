@@ -197,6 +197,7 @@ export function taskStates(): Promise<TaskSnapshot> {
 }
 
 export interface ValueRead {
+  activeVariant?: string | null;
   text?: string | null;
   value: number | null;
   error: string | null;
@@ -206,3 +207,7 @@ export interface ValueRead {
 export function readValues(nodes: NodeRef[]): Promise<ValueRead[]> {
   return invoke("session_read_values", { nodes });
 }
+
+export interface TraceEvent { seq: number; ticks: number; task: number; kind: number }
+export interface TraceSnapshot { clockHz: number; head: number; capacity: number; incomplete: number; events: TraceEvent[] }
+export function taskTrace(): Promise<TraceSnapshot | null> { return invoke("session_task_trace"); }

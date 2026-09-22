@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { host } from "../host";
 import { Children, RootNode, SymbolNode } from "./api";
 
-type ChildState = { status: "loading" } | { status: "error"; message: string } | ({ status: "ok" } & Children);
+type ChildState = { status: "loading" } | { status: "error"; message: string } | ({ status: "ok"; offset: number } & Children);
 
 type Row =
   | { type: "namespace"; key: string; label: string; depth: number; count: number }
   | { type: "node"; key: string; node: SymbolNode; depth: number }
+  | { type: "page"; key: string; node: SymbolNode; offset: number; total: number; depth: number }
   | { type: "note"; key: string; text: string; depth: number; error?: boolean };
 
 interface Namespace {
@@ -38,7 +39,7 @@ function buildNamespaces(roots: RootNode[]): Namespace {
 
 /** Numbers, and containers that may hold numbers, on a readable node. */
 export function watchable(node: SymbolNode) {
-  if (!node.readable || node.ref.steps.some((s) => s.kind === "deref")) return false;
+  if (node.sequence || !node.readable || node.ref.steps.some((s) => s.kind === "deref" || s.kind === "sliceIndex")) return false;
   if (node.kind === "scalar" || node.kind === "enum") return node.scalar !== null && typeof node.scalar === "string";
   return node.kind === "struct" || node.kind === "array" || node.kind === "taggedEnum";
 }
@@ -71,6 +72,9 @@ interface Props {
   label?: string;
   /** Numeric rows exposed by the current expansion/filter state. */
   onVisibleNodes?: (nodes: SymbolNode[]) => void;
+  live?: boolean;
+  activeVariants?: Map<string, string | null>;
+  emptyMessage?: string;
 }
 
 export function SymbolTree({
@@ -83,6 +87,9 @@ export function SymbolTree({
   filters = true,
   label = "Symbols",
   onVisibleNodes,
+  live = false,
+  activeVariants,
+  emptyMessage,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [hideReadOnly, setHideReadOnly] = useState(true);
@@ -90,12 +97,16 @@ export function SymbolTree({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [children, setChildren] = useState<Map<string, ChildState>>(new Map());
   const listRef = useRef<HTMLDivElement>(null);
+  const visibleKey = useRef<string | null>(null);
+  const generation = useRef(0);
 
   // New ELF: forget expansion and cached children
   useEffect(() => {
+    generation.current++;
+    visibleKey.current = null;
     setExpanded(new Set());
     setChildren(new Map());
-  }, [roots]);
+  }, [roots, live]);
 
   const needle = filter.trim().toLowerCase();
   const visibleRoots = useMemo(
@@ -124,15 +135,15 @@ export function SymbolTree({
       } else if (state.status === "error") {
         out.push({ type: "note", key: `${node.path}/error`, text: state.message, depth: depth + 1, error: true });
       } else {
-        for (const child of state.nodes) pushNode(child, depth + 1);
-        if (state.total > state.nodes.length) {
-          out.push({
-            type: "note",
-            key: `${node.path}/more`,
-            text: `${state.total - state.nodes.length} more elements not shown`,
-            depth: depth + 1,
-          });
+        for (const child of state.nodes) {
+          if (activeVariants && node.kind === "taggedEnum") {
+            const step = child.ref.steps[child.ref.steps.length - 1];
+            if (step?.kind === "discriminant") continue;
+            if (step?.kind === "variant" && step.value !== activeVariants.get(node.path)) continue;
+          }
+          pushNode(child, depth + 1);
         }
+        if (node.sequence || state.offset > 0 || state.total > state.nodes.length) out.push({ type: "page", key: `${node.path}/page`, node, offset: state.offset, total: state.total, depth: depth + 1 });
       }
     };
 
@@ -150,11 +161,21 @@ export function SymbolTree({
     };
     walk(tree, 0);
     return out;
-  }, [tree, expanded, children, needle]);
+  }, [tree, expanded, children, needle, activeVariants]);
 
   useEffect(() => {
-    onVisibleNodes?.(rows.flatMap((r) => r.type === "node" && r.node.readable && typeof r.node.scalar === "string" && (r.node.kind === "scalar" || r.node.kind === "enum" || r.node.kind === "pointer") ? [r.node] : []));
+    const visible = rows.flatMap((r) => r.type === "node" && r.node.readable && (typeof r.node.scalar === "string" || r.node.kind === "taggedEnum" || r.node.sequence) ? [r.node] : []);
+    const key = visible.map((n) => n.path).join("\n");
+    if (key !== visibleKey.current) { visibleKey.current = key; onVisibleNodes?.(visible); }
   }, [rows, onVisibleNodes]);
+
+  const loadPage = (node: SymbolNode, offset = 0) => {
+    const revision = generation.current;
+    setChildren((m) => new Map(m).set(node.path, { status: "loading" }));
+    host.inspectChildren(node.ref, offset, 64, live).then((c) => {
+      if (generation.current === revision) setChildren((m) => new Map(m).set(node.path, {status: "ok", offset, ...c}));
+    }, (e) => { if (generation.current === revision) setChildren((m) => new Map(m).set(node.path, {status: "error", message: String(e)})); });
+  };
 
   const toggle = (key: string, node?: SymbolNode) => {
     const next = new Set(expanded);
@@ -162,20 +183,14 @@ export function SymbolTree({
       next.delete(key);
     } else {
       next.add(key);
-      if (node && !children.has(key)) {
-        setChildren((m) => new Map(m).set(key, { status: "loading" }));
-        host
-          .symbolChildren(node.ref)
-          .then((c) => setChildren((m) => new Map(m).set(key, { status: "ok", ...c })))
-          .catch((e) => setChildren((m) => new Map(m).set(key, { status: "error", message: String(e) })));
-      }
+      if (node && (!children.has(key) || children.get(key)?.status === "error" || node.sequence)) loadPage(node);
     }
     setExpanded(next);
   };
 
   const selectedKey = selected?.path;
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const focusable = rows.filter((r) => r.type !== "note");
+    const focusable = rows.filter((r) => r.type === "node" || r.type === "namespace");
     const index = focusable.findIndex((r) => r.key === document.activeElement?.getAttribute("data-key"));
     const row = focusable[index];
     const focus = (i: number) => {
@@ -244,15 +259,22 @@ export function SymbolTree({
       >
         {rows.length === 0 && (
           <p className="px-4 py-6 text-muted">
-            {needle
+            {emptyMessage ?? (needle
               ? `No symbol path contains “${filter.trim()}”.`
               : roots.length
                 ? "Every static is hidden by the filters above."
-                : "This ELF has no typed statics."}
+                : "This ELF has no typed statics.")}
           </p>
         )}
         {rows.map((row, i) => {
           const indent = { paddingLeft: 10 + row.depth * 14 };
+          if (row.type === "page") return <div role="treeitem" aria-level={row.depth + 1} aria-label={`Page controls for ${row.node.path}`} key={`${row.key}/${row.offset}`} style={indent} className="flex flex-wrap items-center gap-1 py-1 text-[11px] text-muted">
+            <button disabled={row.offset === 0} className="rounded border border-rule px-1 disabled:opacity-40" onClick={() => loadPage(row.node, Math.max(0, row.offset - 64))}>Previous</button>
+            {row.node.sequence && <button className="rounded border border-rule px-1" onClick={() => loadPage(row.node, 0)}>Refresh</button>}
+            <span>{row.total ? row.offset + 1 : 0}–{Math.min(row.offset + 64, row.total)} of {row.total}</span>
+            <button disabled={row.offset + 64 >= row.total} className="rounded border border-rule px-1 disabled:opacity-40" onClick={() => loadPage(row.node, row.offset + 64)}>Next</button>
+            <label>Index <input aria-label={`Jump to index in ${row.node.path}`} type="number" min={0} max={row.total - 1} defaultValue={row.offset} className="w-16 rounded border border-rule bg-surface px-1" onKeyDown={(e) => { if (e.key === "Enter") { const offset = Number(e.currentTarget.value); if (Number.isSafeInteger(offset) && offset >= 0 && offset < row.total) loadPage(row.node, offset); } }} /></label>
+          </div>;
           if (row.type === "note") {
             return (
               <div key={row.key} style={indent} className={`py-0.5 pl-5 text-[12px] ${row.error ? "text-danger" : "text-muted"}`}>
@@ -303,14 +325,14 @@ export function SymbolTree({
                 <>
                   <span
                     title={row.node.path}
-                    className={`max-w-[70%] shrink-0 truncate font-mono text-[12px] ${row.node.readable ? "" : "text-muted line-through"}`}
+                    className={`${notes?.has(row.key) ? "min-w-0 max-w-[50%]" : "max-w-[70%] shrink-0"} truncate font-mono text-[12px] ${row.node.readable ? "" : "text-muted line-through"}`}
                   >
                     {row.node.label}
                   </span>
                   {notes?.has(row.key) ? (
                     <span
-                      title={notes.get(row.key)!.title}
-                      className={`ml-auto min-w-0 truncate pl-3 font-mono text-[11px] ${noteTone[notes.get(row.key)!.tone ?? "ink"]}`}
+                      title={`${notes.get(row.key)!.text}\n${notes.get(row.key)!.title ?? ""}`}
+                      className={`ml-auto max-w-[60%] shrink-0 truncate pl-2 font-mono text-[11px] ${noteTone[notes.get(row.key)!.tone ?? "ink"]}`}
                     >
                       {notes.get(row.key)!.text}
                     </span>
@@ -335,7 +357,7 @@ export function SymbolTree({
                           ? "text-accent"
                           : isSelected
                             ? "text-muted"
-                            : "invisible text-muted group-hover:visible"
+                            : "hidden text-muted group-hover:block"
                       }`}
                     >
                       {watched?.has(row.node.path) ? "Watching" : "Watch"}

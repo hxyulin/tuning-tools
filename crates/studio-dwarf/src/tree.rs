@@ -40,6 +40,7 @@ pub enum Step {
     Task(u64),
     /// Follow a pointer using current target memory.
     Deref,
+    SliceIndex(u64),
 }
 
 /// Stable reference to a node: full symbol path, then steps into its type.
@@ -76,6 +77,7 @@ impl fmt::Display for NodeRef {
             match step {
                 Step::Deref => f.write_str(".*")?,
                 Step::Member(name) => write!(f, ".{name}")?,
+                Step::SliceIndex(i) => write!(f, "[{i}]")?,
                 Step::Index(i) => write!(f, "[{i}]")?,
                 Step::Variant(name) => write!(f, "#{name}")?,
                 Step::Discriminant => f.write_str("#<discriminant>")?,
@@ -120,6 +122,8 @@ pub struct SymbolNode {
     pub kind: NodeKind,
     /// How to decode the bytes when the node is a single value
     pub scalar: Option<VariableType>,
+    /// Rust str/slice fat pointer with DWARF data_ptr and length fields.
+    pub sequence: bool,
     pub expandable: bool,
     /// Members / elements / variants, when known
     pub child_count: Option<u64>,
@@ -258,9 +262,12 @@ pub fn roots(elf: &ElfInfo) -> Vec<RootNode> {
 
 /// Describe the node `node` refers to.
 pub fn node(elf: &ElfInfo, node: &NodeRef) -> Result<SymbolNode, TreeError> {
-    node_with_memory(elf, node, &mut |_, _| {
-        Err("pointer following requires live memory".into())
-    })
+    node_impl(
+        elf,
+        node,
+        &mut |_, _| Err("pointer following requires live memory".into()),
+        false,
+    )
 }
 
 /// Resolve a node with a caller-owned pointer reader. Never caches live addresses.
@@ -269,7 +276,20 @@ pub fn node_with_memory(
     node: &NodeRef,
     read_pointer: &mut dyn FnMut(u64, usize) -> Result<u64, String>,
 ) -> Result<SymbolNode, TreeError> {
-    let (sym, at) = resolve_with_memory(elf, node, read_pointer)?;
+    node_impl(elf, node, read_pointer, true)
+}
+
+pub fn metadata_node(elf: &ElfInfo, node: &NodeRef) -> Result<SymbolNode, TreeError> {
+    node_impl(elf, node, &mut |_, _| Ok(0), false)
+}
+
+fn node_impl(
+    elf: &ElfInfo,
+    node: &NodeRef,
+    read_pointer: &mut dyn FnMut(u64, usize) -> Result<u64, String>,
+    live: bool,
+) -> Result<SymbolNode, TreeError> {
+    let (sym, at) = resolve_with_memory(elf, node, read_pointer, live)?;
     let mut out = describe(
         elf.type_table(),
         node.clone(),
@@ -293,10 +313,60 @@ pub fn children(
     node: &NodeRef,
     limit: Option<usize>,
 ) -> Result<Children, TreeError> {
+    children_page(
+        elf,
+        node,
+        0,
+        limit.unwrap_or(DEFAULT_CHILD_LIMIT),
+        &mut |_, _| Ok(0),
+        false,
+    )
+}
+
+pub fn children_page(
+    elf: &ElfInfo,
+    node: &NodeRef,
+    offset: u64,
+    limit: usize,
+    reader: &mut dyn FnMut(u64, usize) -> Result<u64, String>,
+    live: bool,
+) -> Result<Children, TreeError> {
     let table = elf.type_table();
-    // Children carry type metadata; addresses below dereferences are placeholders.
-    let (sym, at) = resolve_with_memory(elf, node, &mut |_, _| Ok(0))?;
-    let limit = limit.unwrap_or(DEFAULT_CHILD_LIMIT) as u64;
+    let (sym, at) = resolve_with_memory(elf, node, reader, live)?;
+    let limit = limit.min(4096) as u64;
+    if let Some((data, length, element, _)) = sequence(table, at.type_id).filter(|_| live) {
+        let bad = |reason| TreeError::BadStep {
+            at: node.to_string(),
+            reason,
+        };
+        let count =
+            reader(at.address + length.offset, if elf.is_64bit { 8 } else { 4 }).map_err(bad)?;
+        let pointer =
+            reader(at.address + data.offset, if elf.is_64bit { 8 } else { 4 }).map_err(bad)?;
+        let stride = table
+            .type_size(element)
+            .ok_or_else(|| bad("unknown slice element size".into()))?;
+        let mut nodes = Vec::new();
+        for i in offset.min(count)..offset.saturating_add(limit).min(count) {
+            let address = pointer
+                .checked_add(
+                    i.checked_mul(stride)
+                        .ok_or_else(|| bad("slice offset overflow".into()))?,
+                )
+                .ok_or_else(|| bad("slice address overflow".into()))?;
+            nodes.push(describe(
+                table,
+                node.child(Step::SliceIndex(i)),
+                format!("[{i}]"),
+                address,
+                element,
+            ));
+        }
+        return Ok(Children {
+            nodes,
+            total: count,
+        });
+    }
     let readable = sym.is_readable();
 
     let member_node = |step: Step, m: &MemberDef, discr_value: Option<u64>| {
@@ -355,8 +425,8 @@ pub fn children(
             count: Some(count),
         }) => {
             let elem_size = table.type_size(*element).unwrap_or(0);
-            let shown = (*count).min(limit);
-            let nodes = (0..shown)
+            let shown = (*count).min(offset.saturating_add(limit));
+            let nodes = (offset.min(*count)..shown)
                 .map(|i| {
                     let mut n = describe(
                         table,
@@ -393,11 +463,12 @@ fn resolve_with_memory<'e>(
     elf: &'e ElfInfo,
     node: &NodeRef,
     read_pointer: &mut dyn FnMut(u64, usize) -> Result<u64, String>,
+    live: bool,
 ) -> Result<(&'e SymbolInfo, Resolved), TreeError> {
     if node
         .steps
         .iter()
-        .filter(|s| matches!(s, Step::Deref))
+        .filter(|s| matches!(s, Step::Deref | Step::SliceIndex(_)))
         .count()
         > 8
     {
@@ -410,6 +481,12 @@ fn resolve_with_memory<'e>(
     let sym = elf
         .find_symbol(&node.symbol)
         .ok_or_else(|| TreeError::SymbolNotFound(node.symbol.clone()))?;
+    if live && !sym.is_readable() {
+        return Err(TreeError::BadStep {
+            at: node.to_string(),
+            reason: "not readable".into(),
+        });
+    }
     let mut at = Resolved {
         label: sym.display_name.clone(),
         address: sym.address,
@@ -428,6 +505,64 @@ fn resolve_with_memory<'e>(
             walked = walked.child(step.clone());
             continue;
         }
+        let bad = |reason| TreeError::BadStep {
+            at: walked.to_string(),
+            reason,
+        };
+        if let Step::SliceIndex(i) = step {
+            let (data, length, element, _) =
+                sequence(table, at.type_id).ok_or_else(|| bad("not a slice".into()))?;
+            let width = if elf.is_64bit { 8 } else { 4 };
+            let count = read_pointer(at.address + length.offset, width).map_err(bad)?;
+            if live && *i >= count {
+                return Err(bad("slice index out of bounds".into()));
+            }
+            let pointer = read_pointer(at.address + data.offset, width).map_err(bad)?;
+            if live && pointer == 0 {
+                return Err(bad("null slice pointer".into()));
+            }
+            let stride = table
+                .type_size(element)
+                .ok_or_else(|| bad("unknown element size".into()))?;
+            let address = pointer
+                .checked_add(
+                    i.checked_mul(stride)
+                        .ok_or_else(|| bad("slice offset overflow".into()))?,
+                )
+                .ok_or_else(|| bad("slice address overflow".into()))?;
+            at = Resolved {
+                label: format!("[{i}]"),
+                address,
+                type_id: element,
+                bit_offset: None,
+                bit_size: None,
+                discr_value: None,
+            };
+            walked = walked.child(step.clone());
+            continue;
+        }
+        if live {
+            if let Step::Variant(name) = step {
+                if let Some(TypeDef::Struct(s)) =
+                    table.get(table.get_underlying(peel(table, at.type_id)))
+                {
+                    if let Some(part) = &s.variant_part {
+                        let tag = if let Some(d) = &part.discriminant {
+                            read_pointer(
+                                at.address + d.offset,
+                                table.type_size(d.type_id).unwrap_or(0) as usize,
+                            )
+                            .map_err(bad)?
+                        } else {
+                            0
+                        };
+                        if part.select(tag).is_none_or(|v| v.member.name != *name) {
+                            return Err(bad("inactive variant".into()));
+                        }
+                    }
+                }
+            }
+        }
         if matches!(step, Step::Deref) {
             let bad = |reason| TreeError::BadStep {
                 at: walked.to_string(),
@@ -443,6 +578,9 @@ fn resolve_with_memory<'e>(
             };
             let address =
                 read_pointer(at.address, if elf.is_64bit { 8 } else { 4 }).map_err(bad)?;
+            if live && address == 0 {
+                return Err(bad("null pointer".into()));
+            }
             at = Resolved {
                 label: "*".into(),
                 address,
@@ -700,7 +838,8 @@ pub(crate) fn describe(
         wrapper: (type_id != outer).then(|| table.type_name(outer)),
         kind,
         scalar,
-        expandable: child_count.is_some_and(|c| c > 0),
+        sequence: sequence(table, outer).is_some(),
+        expandable: sequence(table, outer).is_some() || child_count.is_some_and(|c| c > 0),
         child_count,
         readable: true,
         status: None,
@@ -1018,4 +1157,116 @@ mod tests {
         );
         assert_eq!(serde_json::from_str::<NodeRef>(&json).unwrap(), r);
     }
+}
+
+/// Recognize only genuine Rust borrowed str/slice DWARF layouts, not arbitrary structs.
+fn sequence(table: &TypeTable, outer: TypeId) -> Option<(&MemberDef, &MemberDef, TypeId, bool)> {
+    let Some(TypeDef::Struct(s)) = table.get(table.get_underlying(peel(table, outer))) else {
+        return None;
+    };
+    let name = s.name.as_deref()?;
+    let is_str = name == "&str" || name == "&mut str";
+    if !is_str && !(name.starts_with("&[") || name.starts_with("&mut [")) {
+        return None;
+    }
+    let data = s.members.iter().find(|m| m.name == "data_ptr")?;
+    let length = s.members.iter().find(|m| m.name == "length")?;
+    let Some(TypeDef::Pointer(element)) = table.get(table.get_underlying(data.type_id)) else {
+        return None;
+    };
+    Some((data, length, *element, is_str))
+}
+
+pub struct Preview {
+    pub text: String,
+    pub active_variant: Option<String>,
+}
+/// Bounded string/slice previews and enum labels, with inactive payload checks.
+pub fn preview(
+    elf: &ElfInfo,
+    node: &NodeRef,
+    read: &mut dyn FnMut(u64, usize) -> Result<Vec<u8>, String>,
+) -> Result<Option<Preview>, String> {
+    let word = |bytes: Vec<u8>| -> Result<u64, String> {
+        if bytes.is_empty() || bytes.len() > 8 {
+            return Err("unsupported word size".into());
+        }
+        let mut raw = [0u8; 8];
+        if elf.is_little_endian {
+            raw[..bytes.len()].copy_from_slice(&bytes);
+            Ok(u64::from_le_bytes(raw))
+        } else {
+            raw[8 - bytes.len()..].copy_from_slice(&bytes);
+            Ok(u64::from_be_bytes(raw))
+        }
+    };
+    let (sym, at) = resolve_with_memory(elf, node, &mut |a, n| word(read(a, n)?), true)
+        .map_err(|e| e.to_string())?;
+    if !sym.is_readable() {
+        return Err("not readable".into());
+    }
+    let table = elf.type_table();
+    let mut active_variant = None;
+    let text = if let Some((data, length, _, is_str)) = sequence(table, at.type_id) {
+        let width = if elf.is_64bit { 8 } else { 4 };
+        let count = word(read(at.address + length.offset, width)?)?;
+        if is_str {
+            let pointer = word(read(at.address + data.offset, width)?)?;
+            if count > 0 && pointer == 0 {
+                return Err("null string pointer".into());
+            }
+            let bytes = if count == 0 {
+                vec![]
+            } else {
+                read(pointer, count.min(256) as usize)?
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            format!("{text:?}{}", if count > 256 { "… (truncated)" } else { "" })
+        } else {
+            format!("[{count} elements]")
+        }
+    } else {
+        match table.get(table.get_underlying(peel(table, at.type_id))) {
+            Some(TypeDef::Enum(e)) => {
+                let value = word(read(at.address, e.size as usize)?)?;
+                // Enumerators are signed i64 in DWARF; match both raw bits and sign extension.
+                let bits = e.size * 8;
+                let signed = if bits > 0 && bits < 64 {
+                    ((value << (64 - bits)) as i64) >> (64 - bits)
+                } else {
+                    value as i64
+                };
+                e.variants
+                    .iter()
+                    .find(|v| v.value as u64 == value || v.value == signed)
+                    .map(|v| format!("{} ({value})", v.name))
+                    .unwrap_or_else(|| value.to_string())
+            }
+            Some(TypeDef::Struct(s)) if s.variant_part.is_some() => {
+                let part = s.variant_part.as_ref().unwrap();
+                let tag = if let Some(d) = &part.discriminant {
+                    word(read(
+                        at.address + d.offset,
+                        table.type_size(d.type_id).unwrap_or(0) as usize,
+                    )?)?
+                } else {
+                    0
+                };
+                let variant = part.select(tag).ok_or("unknown enum discriminant")?;
+                active_variant = Some(variant.member.name.clone());
+                variant_label(table, variant)
+            }
+            Some(TypeDef::Primitive(crate::type_table::PrimitiveDef::UnicodeChar { size })) => {
+                let value = word(read(at.address, *size as usize)?)?;
+                char::from_u32(u32::try_from(value).map_err(|_| "invalid character")?)
+                    .map(|c| format!("{c:?} (U+{value:04X})"))
+                    .ok_or("invalid character")?
+            }
+            _ => return Ok(None),
+        }
+    };
+    Ok(Some(Preview {
+        text,
+        active_variant,
+    }))
 }

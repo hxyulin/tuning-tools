@@ -108,3 +108,51 @@ cp target/thumbv7em-none-eabihf/release/telemetry ../../../../studio-core/tests/
 
 Built with rustc 1.98.1. Type names such as `Atomic<u32>` follow the core
 library of that toolchain; rebuilding with another toolchain may change them.
+
+### inspector_lab.elf
+
+Runnable STM32H723 SWD inspection firmware, built from
+`embassy_tasks/src/bin/inspector_lab.rs`. It uses the reset 64 MHz HSI clock,
+SysTick, and DTCM, with caches left disabled. It does not initialize GPIO, CAN,
+USB, motors, or board peripherals. Flashing replaces the board's existing image.
+
+It contains nested structs/tuples/arrays, a 300-element array, fieldless and
+payload enums, `Option<f32>`, niche-encoded `Option<NonZeroU32>`, `Result`, a
+union, all common scalar widths, Unicode, NaN/Infinity/signed zero, null and
+changing pointers, a pointer-to-pointer, a pointer-to-array, and a cyclic list.
+Embassy tasks include a two-await producer, a consumer with retained struct
+locals, a permanently waiting task, an unused pool slot, a completed task, and
+`rm-task-stats` counters. Only the producer uses the single-waiter SysTick future.
+
+Build from this directory:
+
+```sh
+(cd embassy_tasks && cargo build --release --bin inspector_lab --features trace)
+cp embassy_tasks/target/thumbv7em-none-eabihf/release/inspector_lab inspector_lab.elf
+```
+
+From the repository root, test the ELF's initialized data without hardware:
+
+```sh
+cargo build -p studio-server
+npm --prefix vscode run test:inspector
+```
+
+To test a connected STM32H723VGTx, explicitly flash and reset it, then run the
+same read-only suite against hardware (add `--probe <selector>` to probe-rs when
+more than one probe is attached; the test script uses the first enumerated probe):
+
+```sh
+probe-rs download --chip STM32H723VGTx crates/studio-dwarf/tests/fixtures/inspector_lab.elf
+probe-rs reset --chip STM32H723VGTx
+npm --prefix vscode run test:inspector -- --hardware
+```
+
+The hardware suite observes several seconds of changing pointer values and task
+states; it does not write memory, halt, reset or flash the target. The producer
+initializes the large array to its indices on its first update (within one second
+of reset); the hardware suite waits up to five seconds for that update.
+The lab is left running afterward. Open `inspector_lab.elf` in the desktop app
+or VS Code to explore it interactively. Character readouts include the character and code point. Live Watch selects
+active enum payloads automatically. The lab also exposes borrowed UTF-8 strings,
+slices and the `STUDIO_TASK_TRACE` event buffer for the execution timeline.

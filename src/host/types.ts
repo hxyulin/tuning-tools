@@ -5,6 +5,7 @@ import type {
   ProbeInfo,
   SessionEvent,
   TaskSnapshot,
+  TraceSnapshot,
   ValueRead,
   WatchResult,
   WatchTarget,
@@ -107,6 +108,8 @@ export interface Host {
   pickElf(): Promise<string | null>;
   openElf(path: string): Promise<OpenedElf>;
   symbolChildren(node: NodeRef, limit?: number): Promise<Children>;
+  inspectChildren(node: NodeRef, offset: number, limit: number, live: boolean): Promise<Children>;
+  nodeMetadata(node: NodeRef): Promise<SymbolNode>;
   watchableLeaves(node: NodeRef): Promise<SymbolNode[]>;
 
   listProbes(): Promise<ProbeInfo[]>;
@@ -127,6 +130,7 @@ export interface Host {
   discardValues(): Promise<void>;
 
   taskStates(): Promise<TaskSnapshot>;
+  taskTrace(): Promise<TraceSnapshot | null>;
   /** Read each numeric node once, outside the watch list */
   readValues(nodes: NodeRef[]): Promise<ValueRead[]>;
 

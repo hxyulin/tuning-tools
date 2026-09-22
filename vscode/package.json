@@ -210,7 +210,9 @@
     "smoke": "node esbuild.mjs && node dist/smoke.js",
     "harness": "node esbuild.mjs && node dist/harness.js",
     "test:webview": "node scripts/webviewBridge.mjs",
-    "test:recovery": "node scripts/connectionRecovery.mjs"
+    "test:recovery": "node scripts/connectionRecovery.mjs",
+    "test:inspector": "node scripts/inspectorLab.mjs",
+    "test:trace": "node scripts/taskTrace.mjs"
   },
   "devDependencies": {
     "@types/node": "^20",
