@@ -473,7 +473,12 @@ fn stream_serves_every_batch_and_a_stalled_client_holds_nothing_up() {
             .iter()
             .any(|m| m["type"] == "samples" && m["values"].as_object().unwrap().len() == 62)
     });
-    let stalled = TcpStream::connect(address).unwrap();
+    // Bound the advertised window before connecting; OS auto-tuning can otherwise
+    // absorb the entire test stream without exercising backpressure on Windows.
+    let stalled = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap();
+    stalled.set_recv_buffer_size(1024).unwrap();
+    stalled.connect(&address.into()).unwrap();
+    let stalled: TcpStream = stalled.into();
     let lines = Arc::new(Mutex::new(Vec::new()));
     let reader = read_lines(TcpStream::connect(address).unwrap(), lines.clone());
     wait_for("clients", || rig.app.app_state().stream.clients == 3);

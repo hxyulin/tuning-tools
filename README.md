@@ -1,230 +1,147 @@
-# Tuning Tools
+# Tuning Studio
 
-Live variable inspection, tuning, telemetry and task timelines for embedded firmware.
-Desktop app: Tauri 2 host in Rust, React + TypeScript frontend.
+Inspect live embedded variables, plot telemetry, tune parameters, and explore
+Embassy tasks from a desktop app or VS Code. Attach over SWD to a running target
+without halting or resetting it, or use a firmware-provided USB serial link.
 
-This is the successor to `herkules-tools` and `datavis-rs`. The design,
-the reasoning behind it, and the build order are in [FRAME.md](FRAME.md).
-Architecture notes on the projects it draws from are in
-[docs/references/](docs/references/).
+Tuning Studio works with C, C++ and Rust firmware ELFs. It grew out of RoboMaster
+tooling, but the firmware API has no robot, board, RTOS or transport dependency.
 
-## Status
+**Initial release in preparation: 0.1.0.** Registry installation commands below
+become available after publication. Until then, build from this repository.
+The Rust library APIs and editor protocol are evolving; use matching versions.
 
-M3. `studio-dwarf` parses C, C++ and Rust firmware ELFs (symbols, DWARF
-types, Rust enums with data, rebuild diff). The app browses statics as a
-module tree, attaches to a running target through a debug probe (probe-rs,
-no halt, no reset), samples watched numbers on absolute deadlines, plots them,
-and shows the firmware's defmt log from RTT. No firmware change is needed.
+## What you can do
 
-A firmware that declares a `tuning-studio-api` table gets a Tune tab: its gains
-and published state by name, unit and range. The app decodes the table from
-the ELF, checks that the target runs that build before it writes, and sends
-requests over SWD; the firmware applies them inside its declared range and
-step.
+- **Live Watch:** expand structs, arrays, enums and pointers; inspect exact 64-bit
+  integer values; pin groups of variables and browse large arrays in pages.
+- **Scope:** plot numeric fields, group traces by unit, pause and inspect history.
+- **Tune:** discover named parameters, ranges and units; request changes that the
+  firmware applies; reset defaults and save when firmware implements storage.
+- **Tasks:** inspect Embassy await states and locals. Add optional instrumentation
+  for a timeline of completed polls and wake-to-run latency.
+- **Capture:** record plotted samples to MCAP, export CSV, or stream live data to
+  your scripts over TCP. Read firmware defmt logs through RTT.
 
-The same Tune tab works over the robot's Type-C cable with no probe and no
-ELF: pick USB, and the app speaks the tuning-studio-api v1 framed protocol (compatible with `rm-telemetry`), takes
-the firmware's tuning lease, lists the table the firmware reports, writes
-requests, resets them to defaults, saves them to the robot's flash so they
-survive a power cycle, and plots watched values the firmware streams.
+| Capability | SWD probe + matching ELF | USB serial + firmware API server |
+|---|---|---|
+| Plot arbitrary numeric statics | Yes | Declared table values only |
+| Expand live variables and pointers | Yes | No |
+| Named tuning parameters | Requires firmware API table | Yes |
+| Save tuning to flash | Requires RTT control server and storage | Requires storage implementation |
+| Embassy task inspection | Requires retained task debug information | No |
+| Execution timeline | Requires trace instrumentation | No |
 
-Over the probe, a firmware that also serves the protocol on its RTT `control`
-and `telemetry` channels gets tuning requests and saves the same way; values
-are still sampled from memory. Firmware without those channels is tuned by
-writing its table cells directly and cannot save from a probe.
+[User guide](docs/usage.md) · [Firmware API](crates/tuning-studio-api/README.md) ·
+[Task timelines](docs/task-timeline.md) · [TCP stream](docs/stream.md)
 
-## Develop
+## Install
 
-```bash
-npm install
-npm run tauri dev        # desktop app with native probe/serial access
-npm run dev              # frontend only, no hardware
-cargo test --workspace   # parser tests against fixtures in crates/studio-dwarf/tests
+Once 0.1.0 is published, download a native installer from
+[GitHub Releases](https://github.com/hxyulin/tuning-tools/releases), or use:
+
+```sh
+cargo binstall tuning-studio
+# Alternatively, compile the published crate:
+cargo install tuning-studio --locked
 ```
 
-Open an ELF at startup instead of through the file dialog:
+The command is `tuning-studio`. Published source packages include the frontend;
+Node.js is only needed when building from the repository.
 
-```bash
-TUNING_TOOLS_ELF=path/to/firmware npm run tauri dev
+Release builds target Linux x86-64, Windows x86-64, and macOS Apple Silicon/Intel.
+The desktop uses the system webview: WebKitGTK 4.1 on Linux, WebView2 on Windows,
+and WebKit on macOS. Source builds also need Rust and the
+[Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/), plus
+libudev development headers on Linux for probe access. USB devices may need
+platform-specific permissions or drivers. Initial native bundles are unsigned;
+macOS notarization and Windows signing are not configured.
+
+The VS Code extension is currently built from source; see the
+[extension setup](docs/usage.md#vs-code-extension).
+
+## First connection
+
+1. Build your firmware with DWARF debug information and retain the unstripped ELF.
+   For Rust release builds, set `debug = 2` and `strip = false` in the firmware's
+   `[profile.release]`. Flash that same build using your normal firmware workflow.
+2. Launch Tuning Studio and open the ELF. In **Connection settings…**, select the
+   probe and target chip, then connect. Release the probe from other debugger
+   sessions before connecting.
+3. Expand **Variables → Live Watch** to inspect fields. Add fixed-address numeric
+   values to the scope with **W**, or select values to watch from the symbol browser.
+4. If the firmware declares a tuning table, open **Tune**. For USB, choose the
+   serial port instead; a compatible firmware server provides the catalog without
+   an ELF or debug probe.
+
+Ordinary SWD variable inspection needs no firmware API. Use
+[`tuning-studio-api`](crates/tuning-studio-api/README.md) to expose intentional,
+named tuning controls and USB telemetry. Add
+[`tuning-studio-trace`](crates/studio-task-trace/README.md) only when you want
+instrumented task timing.
+
+## Build and develop
+
+Use current stable Rust, Node.js 24 and the platform prerequisites above.
+
+```sh
+git clone https://github.com/hxyulin/tuning-tools.git
+cd tuning-tools
+npm ci
+npm run tauri dev
 ```
 
-Check the parser against a real firmware build:
-
-```bash
-STUDIO_DWARF_ELF=path/to/firmware cargo test -p tuning-studio-dwarf -- --ignored
+```sh
+npm run build                       # frontend and embedded package assets
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets -- -D warnings
+npm run tauri -- build               # native release build
 ```
 
-Check a probe and board without the app (prints values and log lines):
+`npm run dev` runs a browser preview without native hardware access.
+`TUNING_TOOLS_ELF=path/to/firmware npm run tauri dev` opens an ELF at startup.
+See the [development guide](docs/development.md) for probe checks, fixtures,
+VS Code validation and testing against real firmware.
 
-```bash
-cargo run -p tuning-studio-core --example link -- --port /dev/cu.usbmodem101 --rate 500 [--save] <value name>...   # USB link, no app
-cargo run -p tuning-studio-core --example watch -- --elf path/to/firmware --list
-cargo run -p tuning-studio-core --example watch -- --elf path/to/firmware --chip STM32H723VG <static path>...
-cargo run --release -p tuning-studio-carriers --example probe_bench -- STM32H723VG   # raw SWD read latency
-```
+## Crates
 
-Requires Rust stable, Node 20+, and the platform Tauri prerequisites.
+| Package | Purpose | Rust import / executable |
+|---|---|---|
+| [tuning-studio](src-tauri/README.md) | Desktop application | `tuning-studio` executable |
+| [tuning-studio-api](crates/tuning-studio-api/README.md) | `no_std` descriptors, protocol server and persistence format | `tuning_studio_api` |
+| [tuning-studio-trace](crates/studio-task-trace/README.md) | Optional bounded firmware event ring | `tuning_studio_trace` |
+| [tuning-studio-dwarf](crates/studio-dwarf/README.md) | ELF/DWARF parsing and typed variable trees | `studio_dwarf` |
+| [tuning-studio-carriers](crates/studio-carriers/README.md) | Probe, RTT, serial and mock transports | `studio_carriers` |
+| [tuning-studio-core](crates/studio-core/README.md) | Coalesced reads, sessions, tuning and sample frames | `studio_core` |
+| [tuning-studio-app](crates/studio-app/README.md) | Shared desktop/editor backend, recording and streaming | `studio_app` |
+| [tuning-studio-server](crates/studio-server/README.md) | Backend over framed stdio for VS Code | `studio-server` executable |
 
-## Layout
+The desktop frontend lives in `src/`, its native host in `src-tauri/`, and the
+editor integration in `vscode/`. Both interfaces use the same Rust backend.
 
-```
-src/            React frontend (widgets, layout, data plane consumer)
-src-tauri/      Tauri host: commands, event/channel bridge to studio-core
-crates/
-  studio-dwarf     ELF symbols and DWARF types
-  studio-carriers  probe-rs memory access and RTT, mock target
-  studio-core      read planner, session thread, stats, sample frames, defmt
-docs/           design records and reference notes
-```
+## Current limits
 
-## VS Code extension
+Live Watch is read-only and SWD-only, polling at up to 5 Hz with at most 128
+expanded numeric fields per request. Pointer-derived fields cannot yet be
+plotted. Running-target reads are not atomic snapshots; optimized-away data
+cannot be recovered from an ELF. Plots use floating-point values even when
+Live Watch preserves exact integer text.
 
-Build the server and extension, or choose **Tuning Studio extension** in this
-workspace's Run and Debug menu and press F5 (its pre-launch task builds all three):
+Sample rates depend on the probe, transport, watched regions and host scheduling.
+Task timelines require instrumentation, consume RAM, and can lose events when
+polling falls behind; detected gaps are shown rather than joined into false
+spans. Task polling time includes interrupt preemption. See
+[inspection limits](docs/usage.md#live-watch-swd) and
+[timeline limits](docs/task-timeline.md) for details.
 
-```bash
-cargo build -p tuning-studio-server
-npm run build:webview
-npm --prefix vscode install
-npm --prefix vscode run build
-```
+## Contributing and releases
 
-In the Extension Development Host:
+Bug reports should include the platform, version, transport, target chip and a
+small reproducible firmware example when possible. Run the checks above before
+submitting changes. [FRAME.md](FRAME.md) and [reference notes](docs/references/)
+record the original design and its predecessors, `datavis-rs` and `herkules-tools`.
 
-- Open **Tuning Studio** in the Activity Bar. The native Target and Symbols views
-  can be moved and resized like other VS Code views.
-- Use **Open Firmware ELF**, or right-click a firmware file in Explorer. Opening
-  the same ELF again reloads a rebuild; disconnect first when changing firmware.
-- Choose **Connect Target** to select a debug probe/chip or USB serial port using
-  native pickers. Probe defaults come from the workspace's probe-rs `launch.json`.
-- Expand symbols and use **Plot Symbol** to add scalar values (or numeric children)
-  to the scope. **Go to Source** is available where DWARF includes a source location.
-- Open **Tuning Scope** beside your code. Plots, watch readouts and tuning controls
-  remain webview content; connection controls, symbol navigation, status and firmware
-  logs live in the workbench.
-- Click the native status-bar item for target actions, including sample-rate changes.
-  Firmware logs appear in **Output → Tuning Studio: Firmware**. Recording commands
-  are available in the Command Palette and Target view.
+[Release procedure](docs/releases.md) · [0.1.0 release notes](docs/release-notes/0.1.0.md)
 
-Closing the scope does **not** disconnect the target or stop a recording. Reopening
-it attaches to the existing session; chart history starts fresh, while recording
-continues. Use **Disconnect Target** to release it. Ending the extension host also
-stops the server. A probe-rs debug session still takes priority over probe ownership;
-USB remains independent.
-
-Settings: `tuningStudio.serverPath`, `tuningStudio.mockTarget`,
-`tuningStudio.sampleRateHz` and `tuningStudio.swdSpeedKhz`. Enable `mockTarget` to
-exercise a probe session against an ELF's initialized memory without hardware.
-The browser preview is separate and does not render native VS Code views.
-
-Validation: `npm --prefix vscode run typecheck` and
-`npm --prefix vscode run harness`. The harness exercises the extension with a mock
-server, including probe handoff, recording/export, native commands and scope
-reattachment.
-
-## Interface controls
-
-- **Connection settings…** selects the desktop probe/chip or USB port. Expand
-  **Advanced** for sampling rate and SWD speed. In VS Code, use native Target Actions.
-- **Chart options…** switches between lanes grouped by unit and an overlay.
-  The time window, pause/resume and recording stay on the scope toolbar.
-- Use a watched value's **⋯** button or right-click its row to show/hide its trace
-  or stop watching. Click its unit to change lane grouping.
-- **Diagnostics…** shows ELF details, read timing, RTT status and TCP streaming.
-  Sample rate, failures, skipped ticks and abnormal core/log states stay visible.
-
-Disconnected desktop sessions rescan devices automatically. Missing remembered devices
-stay selected until reattached or explicitly changed. Use **Retry connection** after
-an error, or **Reconnect** after disconnecting. VS Code offers **Reconnect Previous
-Target** in the Command Palette and Target Actions, retaining the last connection and
-sample rate for the current extension session.
-
-Tune values can be filtered by full name and grouped sections can be collapsed.
-**Details** contains range, step limit and reset-to-default controls. Unsaved changes,
-firmware adjustments and write errors remain visible beside their values.
-
-Recovery checks: `npm --prefix vscode run test:recovery` and the extension harness.
-
-## Live Watch (SWD)
-
-Open **Variables → Live Watch** in the desktop app, or **Live Watch** in the
-VS Code scope toolbar. Expand namespaces, structs, arrays and pointers to inspect numeric
-fields. Filtering and collapsing groups change the inspected set; **Pause** freezes
-readouts, and **W** on a fixed-address field adds it to the existing plot/watch list.
-
-Inspection runs separately from plotted samples, at up to 5 Hz with one request in
-flight and a limit of 128 expanded numeric fields. Hidden panels stop polling.
-The shared backend uses the datavis-rs-derived `ReadPlan` to coalesce adjacent
-fields into bounded memory regions, read by the existing session worker without
-halting or resetting the target. This is region coalescing, not the deferred raw
-CMSIS-DAP multi-command packet fast path.
-
-Expand a typed pointer's `*` child to follow it. Pointer chains are resolved again
-on every poll, with shared pointer reads cached only for that poll and pointee
-fields coalesced as usual. Null pointers and failed reads show errors; following
-stops after eight dereferences. Void/function pointers cannot be expanded.
-Pointer-derived fields are inspection-only: plotting still requires fixed
-addresses. Reads occur while the target runs, so a changing pointer and its
-pointee are not an atomic snapshot.
-
-Ordinary 64-bit integers display exact decimal text; NaN, Infinity and negative
-zero have explicit readouts. Plots still use floating-point numbers. Enum values
-show names and Live Watch displays only the active payload (including niches).
-Inactive payload reads fail explicitly. Rust borrowed `&str` previews are bounded
-to 256 bytes; borrowed slices expose their length and indexed elements. Other
-container layouts, such as `String` and `Vec`, remain browsable as DWARF structs.
-
-Arrays and slices have 64-element pages with Previous/Next and an index jump
-(press Enter). Slice indices are bounds-checked on every read; use Refresh to
-update the page after a slice's length changes. **Pin** adds the selected field
-or subtree to a named, persistent watch group. **Pinned groups** switches to that
-focused set; unavailable symbols remain saved for their original ELF. Changed
-readouts briefly highlight. Inspection remains read-only.
-USB targets continue to expose firmware values through Tune. Inspector reads
-are separate from recorded plot samples.
-
-Validation: `cargo test -p tuning-studio-app --test live_watch` checks coalescing,
-request order, duplicate/missing symbols, changing values, pointer retargeting,
-shared/nested pointers, nulls, depth limits and disconnects.
-
-
-### Inspector test firmware and task history
-
-[Inspector lab](crates/studio-dwarf/tests/fixtures/README.md#inspector_labelf)
-provides a runnable STM32H723 binary and repeatable mock/hardware checks for
-complex types, pointer chains, large arrays and Embassy task states. Run
-`npm --prefix vscode run test:inspector` after building `studio-server`.
-
-The Embassy task detail view shows up to 30 seconds of sampled await-state
-history. Select a history block or await point to inspect its type layout; use
-**Follow current state** to resume following the live task. Locals expand as a
-tree, including structs, arrays and pointers. Inactive-state values are hidden
-and are not polled. Task states and locals are separate running-target samples,
-so brief transitions can be missed; this is not an execution trace. Hidden pages
-stop polling, and narrow panes place task details below the task table.
-
-
-### Task execution timeline
-
-**Tasks → Execution timeline** reads the firmware's bounded `STUDIO_TASK_TRACE`
-ring over SWD. Each task has a lane of completed polls; hover for duration and
-wake-to-run latency. Choose a 1 ms–30 s window, zoom and pan through retained
-history, or adjust the long-poll threshold (amber bars). Select a bar to freeze
-and inspect its duration, wake latency, start and end; **Focus poll** zooms around
-that event. **Resume** returns to the latest events. Click a task name to inspect
-its locals. See the [timeline investigation guide](docs/task-timeline.md) for
-controls, capture limits and troubleshooting.
-Missing events are reported and never bridged into invented poll durations.
-This works in the desktop app and VS Code; firmware without the buffer retains
-the sampled task view. Interrupt time inside a poll is included in its duration.
-
-The included [tuning-studio-trace firmware crate](crates/studio-task-trace/README.md)
-is allocation-free and has integration instructions. The inspector lab links it
-already. `npm --prefix vscode run test:trace` checks reconstruction, loss, reset,
-and latency; `test:inspector -- --hardware` checks actual timestamped polls.
-
-## Packages and releases
-
-See [packaging and manual releases](docs/releases.md) for firmware API integration,
-`cargo install`/`cargo binstall`, platform requirements, and the manually triggered
-release workflow. The firmware API is [tuning-studio-api](crates/tuning-studio-api/README.md).
+Host crates and the trace recorder are MIT licensed. The extracted firmware API
+is MIT OR Apache-2.0; its original notices are included in its package.

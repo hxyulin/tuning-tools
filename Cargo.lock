@@ -4950,6 +4950,7 @@ dependencies = [
  "ryu",
  "serde",
  "serde_json",
+ "socket2",
  "tempfile",
  "tracing",
  "tuning-studio-carriers",

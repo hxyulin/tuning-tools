@@ -22,9 +22,14 @@ def validate(version):
             raise SystemExit(f"{name} is {p['version']}, expected {version}")
         if not p["license"] or not p["repository"] or not p["description"]:
             raise SystemExit(f"{name}: missing publishing metadata")
+        readme = p.get("readme")
+        if not readme or not (Path(p["manifest_path"]).parent / readme).is_file():
+            raise SystemExit(f"{name}: missing package README")
         for dep in p["dependencies"]:
             if dep.get("path") and dep["kind"] != "dev" and dep["req"] == "*":
                 raise SystemExit(f"{name}: path dependency without a registry version")
+    if not (Path("docs/release-notes") / f"{version}.md").is_file():
+        raise SystemExit(f"Missing release notes for {version}")
     config = json.loads(Path("src-tauri/tauri.conf.json").read_text())
     if config["version"] != version:
         raise SystemExit("Tauri version differs from crate version")
@@ -47,6 +52,7 @@ def archive(version, target):
     with tarfile.open(dest, "w:gz") as tar:
         tar.add(binary, arcname=binary.name)
         tar.add("LICENSE", arcname="LICENSE")
+        tar.add("src-tauri/README.md", arcname="README.md")
     with tarfile.open(dest) as tar:
         assert f"tuning-studio{suffix}" in tar.getnames()
     digest = hashlib.sha256(dest.read_bytes()).hexdigest()

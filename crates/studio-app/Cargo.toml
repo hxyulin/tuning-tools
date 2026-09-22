@@ -21,6 +21,7 @@ studio-dwarf = { package = "tuning-studio-dwarf", path = "../studio-dwarf", vers
 tracing = { workspace = true }
 
 [dev-dependencies]
+socket2 = "0.6"
 tempfile = "3"
 
 [lib]

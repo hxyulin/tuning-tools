@@ -1,85 +1,117 @@
 # tuning-studio-api
 
-General-purpose, allocation-free firmware API for Tuning Studio. No board, RTOS, or transport dependencies.
+An allocation-free, `no_std` firmware API for named tuning parameters and
+telemetry. Expose a table to Tuning Studio over SWD, or serve the same values
+over a byte transport such as USB CDC, UART or RTT. The crate has no board,
+RTOS, allocator or transport dependency.
 
-Descriptors for the values a host tool may watch and tune, over SWD or a
-framed byte link.
+You do not need this crate to inspect ordinary variables over SWD. Add it when
+you want discoverable names, units, ranges, controlled parameter application,
+or an ELF-free serial connection.
 
-A firmware declares one static per value and lists them in one `Table`. Over
-SWD the host finds the table through the ELF's debug info, samples the cells,
-and writes tunable requests into them; the firmware needs no task for that.
-Over a byte link such as USB CDC or an RTT channel pair, `server::Server`
-answers the same questions in frames defined by `wire`; over USB the host needs
-no probe and no ELF. No
-allocator either way.
+## Add it to firmware
 
-| item | role |
-|---|---|
-| `Tunable` | an `f32` the host may request; the firmware applies it with `apply` |
-| `WatchF32`, `WatchI32`, `WatchU32`, `WatchBool` | values the firmware publishes each tick |
-| `Entry` | one descriptor: name, unit, kind, access, range, step and the two cells |
-| `Table` | the list the host looks for, with a magic and a format version |
-| `wire` | the frame codec: header, CRC-16/MCRF4XX, `Decoder`, `Writer`, `Reader`, `Status` |
-| `server::Server` | the firmware end of a framed link: lease, catalog, read, write, discard, save, watch, stats |
-| `store` | the saved-values record: encode, decode and restore, and which of two slots to load and overwrite |
+For a published release:
 
-```rust
-use tuning_studio_api::{Tunable, WatchF32, Table};
-
-pub static PITCH_KP: Tunable = Tunable::new("gimbal.pitch.angle.kp", "1/s", 40.0, 0.0, 200.0, 0.2);
-pub static PITCH_ANGLE: WatchF32 = WatchF32::new("gimbal.pitch.angle_rad", "rad");
-pub static TABLE: Table = Table::new(&[PITCH_KP.entry(), PITCH_ANGLE.entry()]);
-
-// In your control tick:
-let previous_kp = 40.0;
-let kp = PITCH_KP.apply(previous_kp);
-PITCH_ANGLE.publish(0.5);
+```toml
+[dependencies]
+tuning-studio-api = "0.1.0"
 ```
 
-## The rules
+For unreleased development, use a path to `crates/tuning-studio-api` in a local checkout,
+or pin the repository to an immutable Git revision. The target must support
+native 32-bit atomics. No features or runtime initialization are required for
+the descriptors themselves.
 
-- **The owner decides what runs.** A host write only sets the requested cell.
-  `Tunable::apply` replaces a non-finite request with the current value, clamps
-  it to `min..=max` (writing the clamped value back), moves at most `max_step`
-  per call, and stores the result in the applied cell. A raw probe write cannot
-  do more than the declaration allows.
-- **Names are ids.** An entry's id is the FNV-1a hash of its name, so a host
-  keeps watches and saved values across rebuilds. `Table::validate` rejects two
-  names with the same id; call it at boot, which also keeps the table linked.
-- **The layout is decoded by field name.** The host reads `Table` and `Entry`
-  through DWARF, so field order does not matter. Renaming, retyping or
-  redefining a field is a format change and bumps `TABLE_VERSION`.
-- **Access is checked on the MCU.** `ReadOnly` refuses every write. A
-  `Tunable::safe_only` value is written only while the caller's
-  `Context::safe` holds, which the robot derives from its own state (for
-  balance-infantry, disarmed). A framed write also needs the lease, a matching
-  type tag and a finite value in range.
-- **One host writes at a time.** LEASE takes a token for `LEASE_MS`; the host
-  renews it. Another token is refused with `Busy` until the lease lapses or is
-  released. A lapsed lease leaves the requests where they are; DISCARD asks for
-  every default.
-- **Samples have a budget.** A WATCH over `SAMPLE_BUDGET_BYTES_PER_S` is
-  refused with `Budget` rather than silently thinned; samples the transport
-  could not send are counted in STATS.
-- **The wire format is this crate.** The host tool uses this same codec; changing a frame bumps `wire::VERSION`.
-- **Saves never overwrite the newest record.** A record holds each tunable's
-  request by id and kind, with a generation and a CRC. SAVE writes the other
-  slot with the next generation, so a torn write leaves the previous save.
-  Restore skips ids the table no longer has, changed kinds and values outside
-  the current range. The server only sequences SAVE (`save_pending`,
-  `finish_save`); the firmware moves the bytes and verifies them.
-- **Steps are per call.** `max_step` is sized for the rate the owner calls
-  `apply` at; a table's ranges and steps are part of its robot's tuning.
+```rust
+use tuning_studio_api::{Table, Tunable, WatchF32};
 
-## Testing
+static SPEED_KP: Tunable = Tunable::new("speed.kp", "1/s", 4.0, 0.0, 20.0, 0.1);
+static SPEED: WatchF32 = WatchF32::new("speed.measured", "rad/s");
+static TABLE: Table = Table::new(&[SPEED_KP.entry(), SPEED.entry()]);
+
+fn control_tick(current_kp: f32, measured_speed: f32) -> f32 {
+    SPEED.publish(measured_speed);
+    SPEED_KP.apply(current_kp)
+}
+
+fn main() {
+    // Do this at firmware startup; it detects duplicate IDs and retains the table.
+    TABLE.validate().expect("unique tuning names");
+    // In real firmware, retain the returned gain for the next control iteration.
+    let next_kp = control_tick(4.0, 12.5);
+    assert_eq!(next_kp, 4.0);
+}
+```
+
+For SWD, retain DWARF information in the firmware ELF and open the ELF matching
+the flashed image. The host locates the table by its fields and reads descriptor
+addresses from it. Descriptors must stay linked; call `TABLE.validate()` at boot.
+The host writes a requested value; your control loop decides when to apply it.
+
+## Available pieces
+
+| API | Purpose |
+|---|---|
+| `Tunable` | An `f32` request/applied pair with range and per-call step limit |
+| `WatchF32`, `WatchI32`, `WatchU32`, `WatchBool` | Values published by firmware |
+| `Entry`, `Table` | Discoverable names, units, kinds, access and cell addresses |
+| `wire` | Fixed-buffer framing, CRC, decoder, reader/writer and status codes |
+| `server::Server` | Lease, catalog, read/write, defaults, save and sample requests |
+| `store` | CRC-protected records, restore and alternating-slot selection |
+
+## USB, UART or RTT integration
+
+The crate owns neither a transport nor a clock. For each link:
+
+1. Construct a `wire::Decoder` and `server::Server::new(&TABLE)`.
+2. Feed received bytes into the decoder. Pass each decoded header/payload to
+   `Server::handle`, with `Context { now_us, safe, bad_frames }` and an output
+   buffer of `wire::MAX_FRAME` bytes. Transmit the returned reply bytes.
+3. Call `Server::sample(now_us, ...)` when due (`next_sample_us()` exposes the
+   next deadline), and transmit nonempty sample frames.
+4. If `save_pending()` is true, serialize the requested values with `store`,
+   write and verify the storage slot, then call `finish_save()` with the result.
+
+USB CDC/UART drivers and RTT channel setup remain in firmware. A SAVE response
+is deferred until the caller completes storage. Without that integration, the
+protocol does not magically persist values. Restore saved values at startup
+using `store` before running the control loop.
+
+## Contracts and limits
+
+- `apply` replaces a non-finite request with the current value, clamps it to the
+  declared range, and moves by at most `max_step` per call. Choose the step for
+  your control-loop rate; it is not a per-second limit.
+- Entry IDs are FNV-1a hashes of names. Keep names stable across firmware updates;
+  `Table::validate` rejects duplicate IDs, including hash collisions.
+- Framed writes check type, range, a renewable lease and access policy.
+  `SafeOnly` uses the caller-supplied `Context::safe`. Firmware must derive that
+  flag from its own state. These are protocol checks, not protection against
+  arbitrary debugger memory writes. `apply` does not itself check `Context`.
+- The server supports up to 32 subscribed values and a 64,000-byte/s sample
+  budget. Late sample deadlines are counted; the transport must handle its own
+  transmit buffering and failures.
+- `store` chooses the other slot when saving, validates records with a CRC, and
+  skips restored entries with missing IDs, changed kinds or invalid ranges.
+  Actual flash erase/write behavior and power-failure handling belong to the
+  firmware's storage adapter.
+- Host and firmware share this codec. Changing the framed protocol requires a
+  `wire::VERSION` change; changing descriptor field contracts requires a
+  `TABLE_VERSION` change. The current v1 formats retain `rm-telemetry` compatibility.
+
+Task timing is independent: use the optional `tuning-studio-trace` crate when
+an execution timeline is needed. This crate imposes no Embassy dependency.
+
+## Development and license
+
+From the [repository](https://github.com/hxyulin/tuning-tools):
 
 ```sh
 cargo test -p tuning-studio-api
+cargo check -p tuning-studio-api --target thumbv7em-none-eabihf
 ```
 
-The v1 wire format and DWARF descriptor layout remain compatible with the original
-`rm-telemetry` API. This crate requires native 32-bit atomics on the firmware target.
-Task tracing is an independent optional dependency, `tuning-studio-trace`.
-
-Extracted from rm-embedded-rs `rm-telemetry`; original MIT/Apache-2.0 notices
-are included in this package.
+See [Tuning Studio](https://github.com/hxyulin/tuning-tools) for the desktop and
+VS Code interfaces. Extracted from `rm-embedded-rs`'s `rm-telemetry` crate;
+licensed MIT OR Apache-2.0 with the original notices included.

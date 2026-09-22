@@ -5,8 +5,8 @@
 //! out of memory, samples the cells over SWD, and writes tunable requests into
 //! them. The task that owns a value decides what it actually runs with:
 //! [`Tunable::apply`] clamps a request to the declared range and moves toward
-//! it by at most `max_step` per call, so a host write cannot push an unsafe
-//! value even through a raw debug probe.
+//! it by at most `max_step` per call. This constrains application of requested
+//! values; it does not protect against arbitrary debugger memory writes.
 //!
 //! # Layout contract
 //!

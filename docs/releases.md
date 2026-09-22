@@ -4,7 +4,9 @@ The public package names are `tuning-studio` (desktop), `tuning-studio-api`
 (allocation-free firmware API), and `tuning-studio-trace` (optional task event
 recorder). Supporting host crates use the `tuning-studio-` prefix as well.
 Names were checked on crates.io on 2026-09-22; availability is not a reservation.
-No crates have been published by this setup.
+The initial release is being prepared. Track remaining work in the
+[0.1.0 checklist](release-checklist.md) and review the
+[release notes](release-notes/0.1.0.md).
 
 ## Firmware integration
 
@@ -59,12 +61,13 @@ The workflow builds:
 | macOS Intel | `x86_64-apple-darwin` | app in DMG |
 
 Every target also produces
-`tuning-studio-VERSION-TARGET.tar.gz` and a SHA-256 checksum. The archive layout
+`tuning-studio-VERSION-TARGET.tar.gz` and a SHA-256 checksum. The archive contains the executable, README and license. Its layout
 matches `[package.metadata.binstall]`; downloads come from the `vVERSION` GitHub
 release. Draft release assets are not publicly accessible to binstall. Publish
 the draft after reviewing its artifacts, release notes and signing limitations.
 
-**Create release** creates a draft only after every build passes. It refuses an
+**Create release** creates a draft only after every build passes, using
+`docs/release-notes/VERSION.md` from the candidate commit. It refuses an
 existing tag/release instead of overwriting previously released binaries.
 **Publish crates** requires the repository secret `CARGO_REGISTRY_TOKEN` with
 publishing rights for these packages. It publishes in dependency order after
@@ -96,3 +99,19 @@ for Tuning Studio belong on that branch; do not add them to
 `refactor/boundary-cleanup`. The embedded compatibility crate re-exports the public
 API and pins this repository by immutable Git revision until crates.io publication.
 After publication, switch those dependencies to the tested registry versions.
+
+## Preparing a version
+
+1. Set the same version in all eight Cargo packages and `tauri.conf.json`, and
+   refresh Cargo.lock. Keep frontend/extension package versions aligned.
+2. Update the changelog, crate READMEs and `docs/release-notes/VERSION.md`.
+   Generated assets must come from that candidate's frontend source.
+3. Commit the candidate and run with both publishing inputs disabled.
+   Review the four build results and smoke-test the downloaded artifacts.
+4. Run with **Create release** enabled to prepare the draft, or enable it on the
+   final candidate build. Review its versioned notes, checksums and target files.
+5. Configure the registry token and publish only when ready. A GitHub draft
+   alone does not publish crates or make binstall downloads available.
+
+Cargo's [publishing guide](https://doc.rust-lang.org/cargo/reference/publishing.html)
+explains package verification and immutable registry releases.

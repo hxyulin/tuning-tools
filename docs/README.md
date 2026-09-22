@@ -1,12 +1,14 @@
 # Documentation
 
-- `references/` — architecture notes on datavis-rs, herkules-tools, MemRW3 and RM Studio, written before any code so their designs could be reused or avoided deliberately.
-- `adr/` — decision records, one file per irreversible choice.
-- `stream.md`: the live TCP data stream protocol, for your own scripts (example client in `examples/stream_client.py`).
-
-- [Task timeline](task-timeline.md) — investigate Embassy polls, navigate captures, and understand timing and data-loss limits.
-- [Live Watch](../README.md#live-watch-swd) — inspect values, follow pointers, page arrays and save watch groups.
-- [Firmware trace integration](../crates/studio-task-trace/README.md) — add the RAM event ring and Embassy hooks.
-- [Inspector lab](../crates/studio-dwarf/tests/fixtures/README.md#inspector_labelf) — build and test complex types and traced tasks on STM32H723.
-
-- [Packages and releases](releases.md) — firmware API, source installs, binstall and manual release CI.
+- [Getting started and crate map](../README.md)
+- [User guide](usage.md): desktop controls, VS Code, Live Watch and task inspection
+- [Firmware API](../crates/tuning-studio-api/README.md): descriptors, protocol and persistence
+- [Firmware trace integration](../crates/studio-task-trace/README.md): event ring, hooks and clocks
+- [Task timeline](task-timeline.md): capture navigation and timing/data-loss limits
+- [TCP stream](stream.md): live data for scripts; [Python client](../examples/stream_client.py)
+- [Development](development.md): local checks, mock fixtures and hardware verification
+- [Inspector lab](../crates/studio-dwarf/tests/fixtures/README.md#inspector_labelf): STM32H723 complex-type fixture
+- [Packaging and releases](releases.md): cargo install, binstall and manual CI
+- [Initial release checklist](release-checklist.md) and [0.1.0 notes](release-notes/0.1.0.md)
+- [Changelog](../CHANGELOG.md)
+- [Design](../FRAME.md), [architecture decisions](adr/) and [reference projects](references/)

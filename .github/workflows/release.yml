@@ -148,4 +148,4 @@ jobs:
                       raise SystemExit(f'Duplicate artifact name: {p.name}')
                   shutil.copy2(p, dst)
           PY
-          gh release create "v$RELEASE_VERSION" release-assets/* --draft --target "$GITHUB_SHA" --title "Tuning Studio $RELEASE_VERSION" --generate-notes
+          gh release create "v$RELEASE_VERSION" release-assets/* --draft --target "$GITHUB_SHA" --title "Tuning Studio $RELEASE_VERSION" --notes-file "docs/release-notes/$RELEASE_VERSION.md"
