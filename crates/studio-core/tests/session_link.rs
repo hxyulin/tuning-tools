@@ -347,7 +347,7 @@ fn writes_go_through_the_firmware_checks() {
     assert_eq!(fw.lock().unwrap().cells[0].requested, 55.5f32.to_bits());
 
     let err = request(&session, LIMIT, 2.0).unwrap_err();
-    assert!(err.contains("disarmed"), "{err}");
+    assert!(err.contains("safe state"), "{err}");
     let err = request(&session, KP, 500.0).unwrap_err();
     assert!(err.contains("0 to 200"), "checked on the host first: {err}");
     let err = request(&session, TICKS, 1.0).unwrap_err();

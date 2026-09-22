@@ -1,9 +1,11 @@
 [package]
-name = "studio-carriers"
+name = "tuning-studio-carriers"
 version = "0.1.0"
 description = "Target memory and byte-stream carriers: probe-rs over SWD, RTT, USB serial, mock"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+readme = "README.md"
 authors.workspace = true
 
 [dependencies]
@@ -17,3 +19,6 @@ tracing = { workspace = true }
 # Same crate probe-rs opens CMSIS-DAP v1 probes with; see `probe::init_hid_on_main_thread`
 [target.'cfg(target_os = "macos")'.dependencies]
 hidapi = { version = "2.6", default-features = false }
+
+[lib]
+name = "studio_carriers"

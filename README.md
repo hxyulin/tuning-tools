@@ -1,6 +1,6 @@
 # Tuning Tools
 
-Live variable watch, tune and telemetry studio for RoboMaster firmware.
+Live variable inspection, tuning, telemetry and task timelines for embedded firmware.
 Desktop app: Tauri 2 host in Rust, React + TypeScript frontend.
 
 This is the successor to `herkules-tools` and `datavis-rs`. The design,
@@ -16,14 +16,14 @@ module tree, attaches to a running target through a debug probe (probe-rs,
 no halt, no reset), samples watched numbers on absolute deadlines, plots them,
 and shows the firmware's defmt log from RTT. No firmware change is needed.
 
-A firmware that declares an `rm-telemetry` table gets a Tune tab: its gains
+A firmware that declares a `tuning-studio-api` table gets a Tune tab: its gains
 and published state by name, unit and range. The app decodes the table from
 the ELF, checks that the target runs that build before it writes, and sends
 requests over SWD; the firmware applies them inside its declared range and
 step.
 
 The same Tune tab works over the robot's Type-C cable with no probe and no
-ELF: pick USB, and the app speaks the `rm-telemetry` framed protocol, takes
+ELF: pick USB, and the app speaks the tuning-studio-api v1 framed protocol (compatible with `rm-telemetry`), takes
 the firmware's tuning lease, lists the table the firmware reports, writes
 requests, resets them to defaults, saves them to the robot's flash so they
 survive a power cycle, and plots watched values the firmware streams.
@@ -51,16 +51,16 @@ TUNING_TOOLS_ELF=path/to/firmware npm run tauri dev
 Check the parser against a real firmware build:
 
 ```bash
-STUDIO_DWARF_ELF=path/to/firmware cargo test -p studio-dwarf -- --ignored
+STUDIO_DWARF_ELF=path/to/firmware cargo test -p tuning-studio-dwarf -- --ignored
 ```
 
 Check a probe and board without the app (prints values and log lines):
 
 ```bash
-cargo run -p studio-core --example link -- --port /dev/cu.usbmodem101 --rate 500 [--save] <value name>...   # USB link, no app
-cargo run -p studio-core --example watch -- --elf path/to/firmware --list
-cargo run -p studio-core --example watch -- --elf path/to/firmware --chip STM32H723VG <static path>...
-cargo run --release -p studio-carriers --example probe_bench -- STM32H723VG   # raw SWD read latency
+cargo run -p tuning-studio-core --example link -- --port /dev/cu.usbmodem101 --rate 500 [--save] <value name>...   # USB link, no app
+cargo run -p tuning-studio-core --example watch -- --elf path/to/firmware --list
+cargo run -p tuning-studio-core --example watch -- --elf path/to/firmware --chip STM32H723VG <static path>...
+cargo run --release -p tuning-studio-carriers --example probe_bench -- STM32H723VG   # raw SWD read latency
 ```
 
 Requires Rust stable, Node 20+, and the platform Tauri prerequisites.
@@ -83,7 +83,7 @@ Build the server and extension, or choose **Tuning Studio extension** in this
 workspace's Run and Debug menu and press F5 (its pre-launch task builds all three):
 
 ```bash
-cargo build -p studio-server
+cargo build -p tuning-studio-server
 npm run build:webview
 npm --prefix vscode install
 npm --prefix vscode run build
@@ -183,7 +183,7 @@ readouts briefly highlight. Inspection remains read-only.
 USB targets continue to expose firmware values through Tune. Inspector reads
 are separate from recorded plot samples.
 
-Validation: `cargo test -p studio-app --test live_watch` checks coalescing,
+Validation: `cargo test -p tuning-studio-app --test live_watch` checks coalescing,
 request order, duplicate/missing symbols, changing values, pointer retargeting,
 shared/nested pointers, nulls, depth limits and disconnects.
 
@@ -218,7 +218,13 @@ Missing events are reported and never bridged into invented poll durations.
 This works in the desktop app and VS Code; firmware without the buffer retains
 the sampled task view. Interrupt time inside a poll is included in its duration.
 
-The included [studio-task-trace firmware crate](crates/studio-task-trace/README.md)
+The included [tuning-studio-trace firmware crate](crates/studio-task-trace/README.md)
 is allocation-free and has integration instructions. The inspector lab links it
 already. `npm --prefix vscode run test:trace` checks reconstruction, loss, reset,
 and latency; `test:inspector -- --hardware` checks actual timestamped polls.
+
+## Packages and releases
+
+See [packaging and manual releases](docs/releases.md) for firmware API integration,
+`cargo install`/`cargo binstall`, platform requirements, and the manually triggered
+release workflow. The firmware API is [tuning-studio-api](crates/tuning-studio-api/README.md).

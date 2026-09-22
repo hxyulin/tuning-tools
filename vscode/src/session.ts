@@ -323,7 +323,7 @@ export class StudioSession implements ProbeHolder {
     const path = findServer(this.context.extensionPath);
     if (!path) {
       throw new Error(
-        "studio-server not found. Build it (cargo build -p studio-server) or set tuningStudio.serverPath.",
+        "studio-server not found. Build it (cargo build -p tuning-studio-server) or set tuningStudio.serverPath.",
       );
     }
     const args = vscode.workspace.getConfiguration("tuningStudio").get<boolean>("mockTarget") ? ["--mock"] : [];

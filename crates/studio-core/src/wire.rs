@@ -1,31 +1,12 @@
-//! The host end of the rm-telemetry framed protocol.
+//! Host adapters for the shared tuning-studio-api framed protocol.
 //!
-//! This mirrors `rm_telemetry::wire` in rm-embedded-rs byte for byte; the
-//! firmware crate is the specification. Both sides test the same vectors.
+//! Framing, CRC, constants and decoding come directly from the firmware API.
 //!
 //! ```text
 //! magic u8 | version u8 | cmd u8 | flags u8 | seq u16 | len u16 | payload | crc16
 //! ```
 
-pub const MAGIC: u8 = 0xa5;
-pub const VERSION: u8 = 1;
-pub const HEADER_LEN: usize = 8;
-pub const MAX_PAYLOAD: usize = 256;
-pub const REPLY: u8 = 0x80;
-
-pub mod cmd {
-    pub const HELLO: u8 = 0x01;
-    pub const LEASE: u8 = 0x02;
-    pub const RELEASE: u8 = 0x03;
-    pub const CATALOG: u8 = 0x10;
-    pub const READ: u8 = 0x11;
-    pub const WRITE: u8 = 0x12;
-    pub const DISCARD: u8 = 0x13;
-    pub const SAVE: u8 = 0x14;
-    pub const WATCH: u8 = 0x20;
-    pub const STATS: u8 = 0x22;
-    pub const SAMPLE: u8 = 0x40;
-}
+pub use tuning_studio_api::wire::{cmd, crc16, HEADER_LEN, MAGIC, MAX_PAYLOAD, REPLY, VERSION};
 
 /// A reply's status byte, as a message for the person who asked.
 pub fn status_message(status: u8) -> &'static str {
@@ -36,7 +17,7 @@ pub fn status_message(status: u8) -> &'static str {
         3 => "the firmware has no value with this id",
         4 => "this value is read-only",
         5 => "the value is outside the range the firmware allows",
-        6 => "the firmware only allows this change while the robot is disarmed",
+        6 => "the firmware only allows this change in a safe state",
         7 => "the value's type does not match the firmware's",
         8 => "this session no longer holds the tuning lease",
         9 => "another tool holds the tuning lease",
@@ -46,35 +27,16 @@ pub fn status_message(status: u8) -> &'static str {
     }
 }
 
-pub const STATUS_BUDGET: u8 = 10;
-pub const STATUS_BUSY: u8 = 9;
-
-/// CRC-16/MCRF4XX: reflected 0x1021, init 0xffff, no final xor.
-pub fn crc16(bytes: &[u8]) -> u16 {
-    let mut crc: u16 = 0xffff;
-    for &byte in bytes {
-        crc ^= u16::from(byte);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0x8408
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    crc
-}
+pub const STATUS_BUDGET: u8 = tuning_studio_api::wire::Status::Budget as u8;
+pub const STATUS_BUSY: u8 = tuning_studio_api::wire::Status::Busy as u8;
 
 pub fn encode(cmd: u8, seq: u16, payload: &[u8]) -> Vec<u8> {
-    assert!(payload.len() <= MAX_PAYLOAD, "payload too long");
-    let mut out = Vec::with_capacity(HEADER_LEN + payload.len() + 2);
-    out.extend_from_slice(&[MAGIC, VERSION, cmd, 0]);
-    out.extend_from_slice(&seq.to_le_bytes());
-    out.extend_from_slice(&(payload.len() as u16).to_le_bytes());
-    out.extend_from_slice(payload);
-    let crc = crc16(&out);
-    out.extend_from_slice(&crc.to_le_bytes());
-    out
+    use tuning_studio_api::wire::{Header, Writer, MAX_FRAME};
+    let mut out = [0; MAX_FRAME];
+    let mut writer = Writer::new(&mut out, Header { cmd, flags: 0, seq }).unwrap();
+    writer.bytes(payload).expect("payload too long");
+    let len = writer.finish();
+    out[..len].to_vec()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,53 +46,23 @@ pub struct Frame {
     pub payload: Vec<u8>,
 }
 
-/// Reassembles frames from a byte stream, skipping noise and bad frames.
+/// Host adapter around the same bounded codec used by firmware.
 #[derive(Debug, Default)]
 pub struct Decoder {
-    buf: Vec<u8>,
+    inner: tuning_studio_api::wire::Decoder,
     pub bad_frames: u64,
 }
-
 impl Decoder {
     pub fn feed(&mut self, bytes: &[u8], mut on_frame: impl FnMut(Frame)) {
-        self.buf.extend_from_slice(bytes);
-        loop {
-            match self.buf.iter().position(|&b| b == MAGIC) {
-                Some(start) => {
-                    self.buf.drain(..start);
-                }
-                None => {
-                    self.buf.clear();
-                    return;
-                }
-            }
-            if self.buf.len() < HEADER_LEN {
-                return;
-            }
-            let len = usize::from(u16::from_le_bytes([self.buf[6], self.buf[7]]));
-            if self.buf[1] != VERSION || len > MAX_PAYLOAD {
-                self.bad_frames += 1;
-                self.buf.drain(..1);
-                continue;
-            }
-            let body = HEADER_LEN + len;
-            if self.buf.len() < body + 2 {
-                return;
-            }
-            let crc = u16::from_le_bytes([self.buf[body], self.buf[body + 1]]);
-            if crc != crc16(&self.buf[..body]) {
-                self.bad_frames += 1;
-                self.buf.drain(..1);
-                continue;
-            }
-            let frame = Frame {
-                cmd: self.buf[2],
-                seq: u16::from_le_bytes([self.buf[4], self.buf[5]]),
-                payload: self.buf[HEADER_LEN..body].to_vec(),
-            };
-            self.buf.drain(..body + 2);
-            on_frame(frame);
-        }
+        let before = self.inner.bad_frames();
+        self.inner.feed(bytes, |header, payload| {
+            on_frame(Frame {
+                cmd: header.cmd,
+                seq: header.seq,
+                payload: payload.to_vec(),
+            })
+        });
+        self.bad_frames += u64::from(self.inner.bad_frames().wrapping_sub(before));
     }
 }
 

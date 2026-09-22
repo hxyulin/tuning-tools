@@ -15,3 +15,8 @@ target
 vscode/media
 vscode/bin
 *.vsix
+
+# Embedded in the published desktop crate by the release job
+src-tauri/frontend
+
+release-assets

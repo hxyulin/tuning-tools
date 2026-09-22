@@ -8,3 +8,5 @@
 - [Live Watch](../README.md#live-watch-swd) — inspect values, follow pointers, page arrays and save watch groups.
 - [Firmware trace integration](../crates/studio-task-trace/README.md) — add the RAM event ring and Embassy hooks.
 - [Inspector lab](../crates/studio-dwarf/tests/fixtures/README.md#inspector_labelf) — build and test complex types and traced tasks on STM32H723.
+
+- [Packages and releases](releases.md) — firmware API, source installs, binstall and manual release CI.

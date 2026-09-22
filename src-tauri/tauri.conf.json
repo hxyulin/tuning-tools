@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tuning Tools",
+  "productName": "Tuning Studio",
   "version": "0.1.0",
   "identifier": "dev.hxyulin.tuning-tools",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "frontend"
   },
   "app": {
     "windows": [
@@ -34,6 +34,6 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "Live variable watch, tune and telemetry studio for RoboMaster firmware"
+    "shortDescription": "Live inspection, tuning and telemetry for embedded firmware"
   }
 }

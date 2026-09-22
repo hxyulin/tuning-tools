@@ -1,9 +1,27 @@
 [package]
-name = "tuning-tools"
+name = "tuning-studio"
 version = "0.1.0"
-description = "Live variable watch, tune and telemetry studio for RoboMaster firmware"
+description = "Live variable inspection, tuning and telemetry for embedded firmware"
 authors = ["hxyulin <hxyulin@proton.me>"]
 edition = "2021"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+include = ["src/**", "build.rs", "Cargo.toml", "Cargo.lock", "tauri.conf.json", "capabilities/**", "icons/**", "frontend/**", "README.md", "LICENSE"]
+
+[[bin]]
+name = "tuning-studio"
+path = "src/main.rs"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,10 +40,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
-studio-dwarf = { path = "../crates/studio-dwarf" }
-studio-carriers = { path = "../crates/studio-carriers" }
-studio-core = { path = "../crates/studio-core" }
-studio-app = { path = "../crates/studio-app" }
+studio-dwarf = { package = "tuning-studio-dwarf", path = "../crates/studio-dwarf", version = "0.1.0" }
+studio-carriers = { package = "tuning-studio-carriers", path = "../crates/studio-carriers", version = "0.1.0" }
+studio-core = { package = "tuning-studio-core", path = "../crates/studio-core", version = "0.1.0" }
+studio-app = { package = "tuning-studio-app", path = "../crates/studio-app", version = "0.1.0" }
 tauri-plugin-dialog = "2"
 
 

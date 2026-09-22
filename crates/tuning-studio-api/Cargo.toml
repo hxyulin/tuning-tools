@@ -1,0 +1,10 @@
+[package]
+name = "tuning-studio-api"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Allocation-free embedded tuning, telemetry descriptors, and framed protocol server"
+repository.workspace = true
+readme = "README.md"
+keywords = ["embedded", "no-std", "telemetry", "tuning"]
+categories = ["embedded", "no-std"]

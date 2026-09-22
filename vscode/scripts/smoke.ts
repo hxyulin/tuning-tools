@@ -23,7 +23,7 @@ function defaultServer(): string {
     .map((p) => resolve(__dirname, "../../target", p, "studio-server"))
     .filter(existsSync)
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-  if (!found.length) throw new Error("no target/{release,debug}/studio-server; run cargo build -p studio-server");
+  if (!found.length) throw new Error("no target/{release,debug}/studio-server; run cargo build -p tuning-studio-server");
   return found[0];
 }
 

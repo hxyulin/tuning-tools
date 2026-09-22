@@ -1,10 +1,19 @@
 [package]
-name = "studio-task-trace"
+name = "tuning-studio-trace"
 version = "0.1.0"
+description = "Bounded no_std task event tracing for live SWD inspection"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+readme = "README.md"
 [dependencies]
 critical-section = "1"
 
 [dev-dependencies]
 critical-section = { version = "1", features = ["std"] }
+
+[features]
+# Larger bounded ring, still understood by the v1 decoder.
+large-buffer = []
+# Board linker and MPU must provide uncached .task_trace RAM.
+custom-section = []

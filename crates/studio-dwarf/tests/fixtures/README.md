@@ -134,7 +134,7 @@ cp embassy_tasks/target/thumbv7em-none-eabihf/release/inspector_lab inspector_la
 From the repository root, test the ELF's initialized data without hardware:
 
 ```sh
-cargo build -p studio-server
+cargo build -p tuning-studio-server
 npm --prefix vscode run test:inspector
 ```
 

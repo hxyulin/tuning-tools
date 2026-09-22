@@ -1,9 +1,11 @@
 [package]
-name = "studio-app"
+name = "tuning-studio-app"
 version = "0.1.0"
 description = "The studio backend as plain methods: ELF browsing, session control, tuning"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+readme = "README.md"
 authors.workspace = true
 
 [dependencies]
@@ -13,10 +15,13 @@ object = { workspace = true }
 ryu = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
-studio-carriers = { path = "../studio-carriers" }
-studio-core = { path = "../studio-core" }
-studio-dwarf = { path = "../studio-dwarf" }
+studio-carriers = { package = "tuning-studio-carriers", path = "../studio-carriers", version = "0.1.0" }
+studio-core = { package = "tuning-studio-core", path = "../studio-core", version = "0.1.0" }
+studio-dwarf = { package = "tuning-studio-dwarf", path = "../studio-dwarf", version = "0.1.0" }
 tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lib]
+name = "studio_app"

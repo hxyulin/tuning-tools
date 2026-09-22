@@ -875,6 +875,118 @@ pub fn split_path(path: &str) -> Vec<String> {
     segments
 }
 
+/// Recognize only genuine Rust borrowed str/slice DWARF layouts, not arbitrary structs.
+fn sequence(table: &TypeTable, outer: TypeId) -> Option<(&MemberDef, &MemberDef, TypeId, bool)> {
+    let Some(TypeDef::Struct(s)) = table.get(table.get_underlying(peel(table, outer))) else {
+        return None;
+    };
+    let name = s.name.as_deref()?;
+    let is_str = name == "&str" || name == "&mut str";
+    if !is_str && !(name.starts_with("&[") || name.starts_with("&mut [")) {
+        return None;
+    }
+    let data = s.members.iter().find(|m| m.name == "data_ptr")?;
+    let length = s.members.iter().find(|m| m.name == "length")?;
+    let Some(TypeDef::Pointer(element)) = table.get(table.get_underlying(data.type_id)) else {
+        return None;
+    };
+    Some((data, length, *element, is_str))
+}
+
+pub struct Preview {
+    pub text: String,
+    pub active_variant: Option<String>,
+}
+/// Bounded string/slice previews and enum labels, with inactive payload checks.
+pub fn preview(
+    elf: &ElfInfo,
+    node: &NodeRef,
+    read: &mut dyn FnMut(u64, usize) -> Result<Vec<u8>, String>,
+) -> Result<Option<Preview>, String> {
+    let word = |bytes: Vec<u8>| -> Result<u64, String> {
+        if bytes.is_empty() || bytes.len() > 8 {
+            return Err("unsupported word size".into());
+        }
+        let mut raw = [0u8; 8];
+        if elf.is_little_endian {
+            raw[..bytes.len()].copy_from_slice(&bytes);
+            Ok(u64::from_le_bytes(raw))
+        } else {
+            raw[8 - bytes.len()..].copy_from_slice(&bytes);
+            Ok(u64::from_be_bytes(raw))
+        }
+    };
+    let (sym, at) = resolve_with_memory(elf, node, &mut |a, n| word(read(a, n)?), true)
+        .map_err(|e| e.to_string())?;
+    if !sym.is_readable() {
+        return Err("not readable".into());
+    }
+    let table = elf.type_table();
+    let mut active_variant = None;
+    let text = if let Some((data, length, _, is_str)) = sequence(table, at.type_id) {
+        let width = if elf.is_64bit { 8 } else { 4 };
+        let count = word(read(at.address + length.offset, width)?)?;
+        if is_str {
+            let pointer = word(read(at.address + data.offset, width)?)?;
+            if count > 0 && pointer == 0 {
+                return Err("null string pointer".into());
+            }
+            let bytes = if count == 0 {
+                vec![]
+            } else {
+                read(pointer, count.min(256) as usize)?
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            format!("{text:?}{}", if count > 256 { "… (truncated)" } else { "" })
+        } else {
+            format!("[{count} elements]")
+        }
+    } else {
+        match table.get(table.get_underlying(peel(table, at.type_id))) {
+            Some(TypeDef::Enum(e)) => {
+                let value = word(read(at.address, e.size as usize)?)?;
+                // Enumerators are signed i64 in DWARF; match both raw bits and sign extension.
+                let bits = e.size * 8;
+                let signed = if bits > 0 && bits < 64 {
+                    ((value << (64 - bits)) as i64) >> (64 - bits)
+                } else {
+                    value as i64
+                };
+                e.variants
+                    .iter()
+                    .find(|v| v.value as u64 == value || v.value == signed)
+                    .map(|v| format!("{} ({value})", v.name))
+                    .unwrap_or_else(|| value.to_string())
+            }
+            Some(TypeDef::Struct(s)) if s.variant_part.is_some() => {
+                let part = s.variant_part.as_ref().unwrap();
+                let tag = if let Some(d) = &part.discriminant {
+                    word(read(
+                        at.address + d.offset,
+                        table.type_size(d.type_id).unwrap_or(0) as usize,
+                    )?)?
+                } else {
+                    0
+                };
+                let variant = part.select(tag).ok_or("unknown enum discriminant")?;
+                active_variant = Some(variant.member.name.clone());
+                variant_label(table, variant)
+            }
+            Some(TypeDef::Primitive(crate::type_table::PrimitiveDef::UnicodeChar { size })) => {
+                let value = word(read(at.address, *size as usize)?)?;
+                char::from_u32(u32::try_from(value).map_err(|_| "invalid character")?)
+                    .map(|c| format!("{c:?} (U+{value:04X})"))
+                    .ok_or("invalid character")?
+            }
+            _ => return Ok(None),
+        }
+    };
+    Ok(Some(Preview {
+        text,
+        active_variant,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1157,116 +1269,4 @@ mod tests {
         );
         assert_eq!(serde_json::from_str::<NodeRef>(&json).unwrap(), r);
     }
-}
-
-/// Recognize only genuine Rust borrowed str/slice DWARF layouts, not arbitrary structs.
-fn sequence(table: &TypeTable, outer: TypeId) -> Option<(&MemberDef, &MemberDef, TypeId, bool)> {
-    let Some(TypeDef::Struct(s)) = table.get(table.get_underlying(peel(table, outer))) else {
-        return None;
-    };
-    let name = s.name.as_deref()?;
-    let is_str = name == "&str" || name == "&mut str";
-    if !is_str && !(name.starts_with("&[") || name.starts_with("&mut [")) {
-        return None;
-    }
-    let data = s.members.iter().find(|m| m.name == "data_ptr")?;
-    let length = s.members.iter().find(|m| m.name == "length")?;
-    let Some(TypeDef::Pointer(element)) = table.get(table.get_underlying(data.type_id)) else {
-        return None;
-    };
-    Some((data, length, *element, is_str))
-}
-
-pub struct Preview {
-    pub text: String,
-    pub active_variant: Option<String>,
-}
-/// Bounded string/slice previews and enum labels, with inactive payload checks.
-pub fn preview(
-    elf: &ElfInfo,
-    node: &NodeRef,
-    read: &mut dyn FnMut(u64, usize) -> Result<Vec<u8>, String>,
-) -> Result<Option<Preview>, String> {
-    let word = |bytes: Vec<u8>| -> Result<u64, String> {
-        if bytes.is_empty() || bytes.len() > 8 {
-            return Err("unsupported word size".into());
-        }
-        let mut raw = [0u8; 8];
-        if elf.is_little_endian {
-            raw[..bytes.len()].copy_from_slice(&bytes);
-            Ok(u64::from_le_bytes(raw))
-        } else {
-            raw[8 - bytes.len()..].copy_from_slice(&bytes);
-            Ok(u64::from_be_bytes(raw))
-        }
-    };
-    let (sym, at) = resolve_with_memory(elf, node, &mut |a, n| word(read(a, n)?), true)
-        .map_err(|e| e.to_string())?;
-    if !sym.is_readable() {
-        return Err("not readable".into());
-    }
-    let table = elf.type_table();
-    let mut active_variant = None;
-    let text = if let Some((data, length, _, is_str)) = sequence(table, at.type_id) {
-        let width = if elf.is_64bit { 8 } else { 4 };
-        let count = word(read(at.address + length.offset, width)?)?;
-        if is_str {
-            let pointer = word(read(at.address + data.offset, width)?)?;
-            if count > 0 && pointer == 0 {
-                return Err("null string pointer".into());
-            }
-            let bytes = if count == 0 {
-                vec![]
-            } else {
-                read(pointer, count.min(256) as usize)?
-            };
-            let text = String::from_utf8_lossy(&bytes);
-            format!("{text:?}{}", if count > 256 { "… (truncated)" } else { "" })
-        } else {
-            format!("[{count} elements]")
-        }
-    } else {
-        match table.get(table.get_underlying(peel(table, at.type_id))) {
-            Some(TypeDef::Enum(e)) => {
-                let value = word(read(at.address, e.size as usize)?)?;
-                // Enumerators are signed i64 in DWARF; match both raw bits and sign extension.
-                let bits = e.size * 8;
-                let signed = if bits > 0 && bits < 64 {
-                    ((value << (64 - bits)) as i64) >> (64 - bits)
-                } else {
-                    value as i64
-                };
-                e.variants
-                    .iter()
-                    .find(|v| v.value as u64 == value || v.value == signed)
-                    .map(|v| format!("{} ({value})", v.name))
-                    .unwrap_or_else(|| value.to_string())
-            }
-            Some(TypeDef::Struct(s)) if s.variant_part.is_some() => {
-                let part = s.variant_part.as_ref().unwrap();
-                let tag = if let Some(d) = &part.discriminant {
-                    word(read(
-                        at.address + d.offset,
-                        table.type_size(d.type_id).unwrap_or(0) as usize,
-                    )?)?
-                } else {
-                    0
-                };
-                let variant = part.select(tag).ok_or("unknown enum discriminant")?;
-                active_variant = Some(variant.member.name.clone());
-                variant_label(table, variant)
-            }
-            Some(TypeDef::Primitive(crate::type_table::PrimitiveDef::UnicodeChar { size })) => {
-                let value = word(read(at.address, *size as usize)?)?;
-                char::from_u32(u32::try_from(value).map_err(|_| "invalid character")?)
-                    .map(|c| format!("{c:?} (U+{value:04X})"))
-                    .ok_or("invalid character")?
-            }
-            _ => return Ok(None),
-        }
-    };
-    Ok(Some(Preview {
-        text,
-        active_variant,
-    }))
 }

@@ -14,7 +14,7 @@ use crate::plan::ReadItem;
 
 /// `RMTT`, little-endian
 pub const TABLE_MAGIC: u32 = u32::from_le_bytes(*b"RMTT");
-pub const TABLE_VERSION: u32 = 1;
+pub const TABLE_VERSION: u32 = tuning_studio_api::TABLE_VERSION;
 /// Refuse tables larger than any firmware would declare; guards against garbage
 const MAX_ENTRIES: u64 = 4096;
 const MAX_TEXT: u64 = 256;

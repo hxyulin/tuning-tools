@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/tuning-studio-api",
   "crates/studio-dwarf",
   "crates/studio-task-trace",
   "crates/studio-carriers",
@@ -18,6 +19,7 @@ exclude = [
 [workspace.package]
 edition = "2021"
 license = "MIT"
+repository = "https://github.com/hxyulin/tuning-tools"
 authors = ["hxyulin <hxyulin@proton.me>"]
 
 [workspace.dependencies]

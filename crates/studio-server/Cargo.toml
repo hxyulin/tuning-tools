@@ -1,9 +1,11 @@
 [package]
-name = "studio-server"
+name = "tuning-studio-server"
 version = "0.1.0"
 description = "The studio backend over stdio, for the VS Code extension"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+readme = "README.md"
 authors.workspace = true
 
 [[bin]]
@@ -13,10 +15,10 @@ path = "src/main.rs"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-studio-app = { path = "../studio-app" }
-studio-carriers = { path = "../studio-carriers" }
-studio-core = { path = "../studio-core" }
-studio-dwarf = { path = "../studio-dwarf" }
+studio-app = { package = "tuning-studio-app", path = "../studio-app", version = "0.1.0" }
+studio-carriers = { package = "tuning-studio-carriers", path = "../studio-carriers", version = "0.1.0" }
+studio-core = { package = "tuning-studio-core", path = "../studio-core", version = "0.1.0" }
+studio-dwarf = { package = "tuning-studio-dwarf", path = "../studio-dwarf", version = "0.1.0" }
 
 [dev-dependencies]
 tempfile = "3"

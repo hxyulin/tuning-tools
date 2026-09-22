@@ -1,0 +1,151 @@
+name: Manual release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already committed in all Cargo manifests and tauri.conf.json
+        required: true
+        default: '0.1.0'
+      create_release:
+        description: Create a draft GitHub release after all builds pass
+        type: boolean
+        default: false
+      publish_crates:
+        description: Publish the workspace crates to crates.io (requires CARGO_REGISTRY_TOKEN)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tuning-studio-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TARGET: ${{ matrix.target }}
+      RELEASE_BUNDLES: ${{ matrix.bundles }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libudev-dev libusb-1.0-0-dev libfuse2
+      - run: npm ci
+      - run: npm run build
+      - name: Validate publishable manifests and embedded assets
+        shell: bash
+        run: python scripts/release.py validate --version "$RELEASE_VERSION"
+      - run: cargo test --workspace --locked
+      - name: Verify standalone firmware packages
+        shell: bash
+        run: |
+          cargo package -p tuning-studio-api --locked
+          cargo package -p tuning-studio-trace --locked
+      - name: Build native bundles
+        shell: bash
+        run: npm run tauri -- build --target "$RELEASE_TARGET" --bundles "$RELEASE_BUNDLES"
+      - name: Assemble binstall archive
+        shell: bash
+        run: python scripts/release.py archive --version "$RELEASE_VERSION" --target "$RELEASE_TARGET"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            release-assets/*
+            target/${{ matrix.target }}/release/bundle/**/*.dmg
+            target/${{ matrix.target }}/release/bundle/**/*.deb
+            target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            target/${{ matrix.target }}/release/bundle/**/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-crates:
+    if: inputs.publish_crates && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libudev-dev libusb-1.0-0-dev
+      - run: npm ci && npm run build
+      - name: Publish in dependency order
+        shell: bash
+        run: |
+          test -n "$CARGO_REGISTRY_TOKEN" || { echo 'Set the CARGO_REGISTRY_TOKEN repository secret first'; exit 1; }
+          for package in tuning-studio-api tuning-studio-trace tuning-studio-dwarf tuning-studio-carriers tuning-studio-core tuning-studio-app tuning-studio-server tuning-studio; do
+            cargo publish --locked -p "$package"
+          done
+
+  release:
+    if: inputs.create_release && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+      - name: Create draft release from verified artifacts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          out = Path('release-assets')
+          out.mkdir()
+          for p in Path('artifacts').rglob('*'):
+              if p.is_file():
+                  dst = out / p.name
+                  if dst.exists():
+                      raise SystemExit(f'Duplicate artifact name: {p.name}')
+                  shutil.copy2(p, dst)
+          PY
+          gh release create "v$RELEASE_VERSION" release-assets/* --draft --target "$GITHUB_SHA" --title "Tuning Studio $RELEASE_VERSION" --generate-notes

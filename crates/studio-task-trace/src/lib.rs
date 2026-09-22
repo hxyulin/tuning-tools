@@ -3,7 +3,10 @@
 //! Supports one core; the critical-section implementation must mask all writers.
 #![no_std]
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
+#[cfg(not(feature = "large-buffer"))]
 pub const CAPACITY: usize = 1024;
+#[cfg(feature = "large-buffer")]
+pub const CAPACITY: usize = 2048;
 pub const READY: u32 = 1;
 pub const BEGIN: u32 = 2;
 pub const END: u32 = 3;
@@ -40,7 +43,14 @@ pub struct Trace {
 }
 #[used]
 #[no_mangle]
-#[cfg_attr(target_os = "none", link_section = ".data.studio_task_trace")]
+#[cfg_attr(
+    all(target_os = "none", not(feature = "custom-section")),
+    link_section = ".data.studio_task_trace"
+)]
+#[cfg_attr(
+    all(target_os = "none", feature = "custom-section"),
+    link_section = ".task_trace"
+)]
 pub static STUDIO_TASK_TRACE: Trace = Trace {
     magic: AtomicU32::new(0x53545452),
     version: AtomicU32::new(1),

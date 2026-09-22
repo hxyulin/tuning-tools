@@ -4130,83 +4130,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
-name = "studio-app"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "mcap",
- "object 0.38.1",
- "ryu",
- "serde",
- "serde_json",
- "studio-carriers",
- "studio-core",
- "studio-dwarf",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "studio-carriers"
-version = "0.1.0"
-dependencies = [
- "hidapi",
- "probe-rs",
- "probe-rs-target",
- "serde",
- "serialport",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
-name = "studio-core"
-version = "0.1.0"
-dependencies = [
- "defmt-decoder",
- "object 0.38.1",
- "serde",
- "studio-carriers",
- "studio-dwarf",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
-name = "studio-dwarf"
-version = "0.1.0"
-dependencies = [
- "cpp_demangle",
- "gimli 0.32.3",
- "object 0.38.1",
- "rustc-demangle",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
-name = "studio-server"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "studio-app",
- "studio-carriers",
- "studio-core",
- "studio-dwarf",
- "tempfile",
-]
-
-[[package]]
-name = "studio-task-trace"
-version = "0.1.0"
-dependencies = [
- "critical-section",
-]
-
-[[package]]
 name = "swift-rs"
 version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4998,19 +4921,101 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "tuning-tools"
+name = "tuning-studio"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "studio-app",
- "studio-carriers",
- "studio-core",
- "studio-dwarf",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tuning-studio-app",
+ "tuning-studio-carriers",
+ "tuning-studio-core",
+ "tuning-studio-dwarf",
+]
+
+[[package]]
+name = "tuning-studio-api"
+version = "0.1.0"
+
+[[package]]
+name = "tuning-studio-app"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "mcap",
+ "object 0.38.1",
+ "ryu",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "tuning-studio-carriers",
+ "tuning-studio-core",
+ "tuning-studio-dwarf",
+]
+
+[[package]]
+name = "tuning-studio-carriers"
+version = "0.1.0"
+dependencies = [
+ "hidapi",
+ "probe-rs",
+ "probe-rs-target",
+ "serde",
+ "serialport",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
+name = "tuning-studio-core"
+version = "0.1.0"
+dependencies = [
+ "defmt-decoder",
+ "object 0.38.1",
+ "serde",
+ "thiserror 2.0.20",
+ "tracing",
+ "tuning-studio-api",
+ "tuning-studio-carriers",
+ "tuning-studio-dwarf",
+]
+
+[[package]]
+name = "tuning-studio-dwarf"
+version = "0.1.0"
+dependencies = [
+ "cpp_demangle",
+ "gimli 0.32.3",
+ "object 0.38.1",
+ "rustc-demangle",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
+name = "tuning-studio-server"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tuning-studio-app",
+ "tuning-studio-carriers",
+ "tuning-studio-core",
+ "tuning-studio-dwarf",
+]
+
+[[package]]
+name = "tuning-studio-trace"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
 ]
 
 [[package]]

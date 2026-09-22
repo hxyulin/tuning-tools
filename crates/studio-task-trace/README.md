@@ -1,6 +1,6 @@
 # SWD task events for Tuning Tools
 
-`studio-task-trace` keeps a 1024-event (24 KiB plus header) ring in RAM, exposed as
+`tuning-studio-trace` keeps a 1024-event (24 KiB plus header) ring in RAM, exposed as
 `STUDIO_TASK_TRACE`. No streaming transport, heap allocation or target halt is
 required. The host reads it through the probe it already owns. Events are ready,
 poll begin, poll end and task exit. Task IDs are Embassy `TaskHeader` addresses.
@@ -12,13 +12,13 @@ The inspector lab's `rm_task_stats.rs` is a working example:
 
 ```rust
 // After enabling the DWT counter, before spawning tasks:
-studio_task_trace::init(CORE_HZ, cortex_m::peripheral::DWT::cycle_count());
+tuning_studio_trace::init(CORE_HZ, cortex_m::peripheral::DWT::cycle_count());
 
 // From a periodic interrupt, less than one 32-bit counter wrap apart:
-studio_task_trace::tick(cortex_m::peripheral::DWT::cycle_count);
+tuning_studio_trace::tick(cortex_m::peripheral::DWT::cycle_count);
 
 // Inside _embassy_trace_task_ready_begin(executor, task):
-studio_task_trace::record(task, studio_task_trace::READY,
+tuning_studio_trace::record(task, tuning_studio_trace::READY,
     cortex_m::peripheral::DWT::cycle_count);
 // Likewise BEGIN in task_exec_begin, END in task_exec_end, EXIT in task_end.
 ```
@@ -49,3 +49,8 @@ of interrupt/idle execution. Markers narrower than a pixel are widened for visib
 
 For host controls, poll details, capture retention and troubleshooting, see the
 [task timeline investigation guide](../../docs/task-timeline.md).
+
+The `large-buffer` feature selects 2048 slots instead of 1024. `custom-section`
+places the ring in `.task_trace`; the board must provide a matching linker section
+and uncached memory mapping. Call `init` before recording, especially for NOLOAD
+sections. These features do not change the v1 wire format.
