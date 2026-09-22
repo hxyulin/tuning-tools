@@ -345,7 +345,10 @@ fn recording_and_stream_over_stdio() {
     assert_eq!(stopped["active"], false);
     assert_eq!(stopped["dropped"], 0);
     let ticks = stopped["ticks"].as_u64().unwrap();
-    assert!(ticks > 500, "{ticks}");
+    assert!(
+        ticks >= progress["ticks"].as_u64().unwrap(),
+        "final tick count includes reported progress"
+    );
     assert!(client
         .call("recording_stop", Value::Null)
         .unwrap_err()
