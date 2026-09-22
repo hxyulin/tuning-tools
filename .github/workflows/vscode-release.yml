@@ -31,8 +31,8 @@ jobs:
       - run: npm run build:webview
       - run: npm --prefix vscode ci
       - run: npm --prefix vscode run typecheck
-      - run: npm --prefix vscode run harness
       - run: cargo build --release --locked -p tuning-studio-server
+      - run: npm --prefix vscode run harness
       - name: Bundle native server
         shell: bash
         run: |

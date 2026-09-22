@@ -6,6 +6,18 @@ Commands below run from the repository root.
 
 ## VS Code extension
 
+Download the `.vsix` matching your platform from
+[GitHub Releases](https://github.com/hxyulin/tuning-tools/releases/latest):
+`darwin-arm64` for Apple Silicon, `darwin-x64` for Intel macOS,
+`win32-x64` for Windows x64, or `linux-x64` for Linux x64.
+In VS Code, select **Extensions → … → Install from VSIX…** and choose the file.
+The extension bundles `studio-server`; no Rust or Node installation is needed.
+You can also use `code --install-extension path/to/package.vsix`.
+Marketplace publication is separate; GitHub VSIX installs should be updated
+by installing the newer release's VSIX.
+
+For development from source:
+
 Build the server and extension, or choose **Tuning Studio extension** in this
 workspace's Run and Debug menu and press F5 (its pre-launch task builds all three):
 

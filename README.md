@@ -57,8 +57,10 @@ libudev development headers on Linux for probe access. USB devices may need
 platform-specific permissions or drivers. Initial native bundles are unsigned;
 macOS notarization and Windows signing are not configured.
 
-The VS Code extension is currently built from source; see the
-[extension setup](docs/usage.md#vs-code-extension).
+Install the VS Code extension from a platform-specific `.vsix` on the
+[release page](https://github.com/hxyulin/tuning-tools/releases/latest) using
+**Extensions → … → Install from VSIX…**. The native server is bundled;
+see the [extension setup](docs/usage.md#vs-code-extension).
 
 ## First connection
 
