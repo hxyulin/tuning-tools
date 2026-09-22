@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { Catalog } from "../elf/api";
 import { host } from "../host";
 import type * as api from "./api";
+import { saveUnsupported } from "./tuningPresentation";
 import { samples } from "./samples";
 
 const MAX_LOG_LINES = 5000;
@@ -14,6 +15,8 @@ export interface Link {
 
 export interface Tune {
   check: api.CatalogCheck;
+  /** Unknown until a SAVE reply explicitly reports support or lack of it. */
+  saveSupported?: boolean;
   values: Map<number, api.TuneValue>;
   /**
    * Requested values as of the first read or the last save in this session. The firmware does
@@ -68,6 +71,7 @@ export function useSession() {
             const values = new Map(event.values.map((v) => [v.id, v]));
             setTune((old) => ({
               check: event.check,
+              saveSupported: old?.saveSupported,
               values,
               saved: event.savedValues ? new Map(event.savedValues) : old?.saved.size ? old.saved : requestedValues(values),
             }));
@@ -101,8 +105,14 @@ export function useSession() {
 
   /** Keep every requested tuning value across a power cycle */
   const save = useCallback(async () => {
-    await host.saveValues();
-    setTune((t) => t && { ...t, saved: requestedValues(t.values) });
+    const gen = generation.current;
+    try {
+      await host.saveValues();
+      if (gen === generation.current) setTune((t) => t && { ...t, saveSupported: true, saved: requestedValues(t.values) });
+    } catch (error) {
+      if (gen === generation.current && saveUnsupported(error)) setTune((t) => t && { ...t, saveSupported: false });
+      throw error;
+    }
   }, []);
 
   const clearLogs = useCallback(() => setLogs([]), []);

@@ -4,6 +4,8 @@ import { host } from "../host";
 import { field, ghostButton, primaryButton } from "../ui";
 import { formatValue } from "./format";
 import { Tune } from "./useSession";
+import { TuneSlider } from "./TuneSlider";
+import { SAVE_UNSUPPORTED, saveUnsupported } from "./tuningPresentation";
 
 interface Props {
   catalog: Catalog | null;
@@ -57,6 +59,9 @@ export function TunePanel({ catalog, catalogError, tune, connected, fromTarget, 
   const [busy, setBusy] = useState<"reset" | "save" | null>(null);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
 
+  const unsupported = tune?.saveSupported === false;
+  useEffect(() => { setNotice(null); }, [catalog, connected]);
+
   if (!catalog) {
     return (
       <p className="p-4 leading-relaxed text-muted">
@@ -79,13 +84,14 @@ export function TunePanel({ catalog, catalogError, tune, connected, fromTarget, 
     try {
       if (action === "reset") {
         await host.discardValues();
-        setNotice({ text: "Defaults requested. Save to keep them.", error: false });
+        setNotice({ text: unsupported ? "Defaults requested for this run." : "Defaults requested. Save to keep them if this firmware supports persistence.", error: false });
       } else {
         await onSave();
         setNotice({ text: "Saved. The robot starts with these values after a power cycle.", error: false });
       }
     } catch (e) {
-      setNotice({ text: String(e), error: true });
+      const unavailable = action === "save" && saveUnsupported(e);
+      setNotice(unavailable ? null : { text: String(e), error: true });
     } finally {
       setBusy(null);
     }
@@ -126,12 +132,13 @@ export function TunePanel({ catalog, catalogError, tune, connected, fromTarget, 
             }} className="cursor-pointer px-3 py-2 text-[11px] font-medium text-muted">{group.name || "Values"} <span className="text-faint">{group.entries.length}</span></summary>
             <ul>
               {group.entries.map((entry) => (
-                <Row
+                <TuneRow
                   key={entry.id}
                   entry={entry}
                   value={tune?.values.get(entry.id) ?? null}
                   saved={tune?.saved.get(entry.id) ?? null}
                   canWrite={canWrite}
+                  saveSupported={tune?.saveSupported}
                   watched={watched.has(entry.name)}
                   onWatch={() => onWatch(entry)}
                 />
@@ -140,14 +147,15 @@ export function TunePanel({ catalog, catalogError, tune, connected, fromTarget, 
           </details>
         ))}
       </div>
+      {unsupported && <p role="status" className="px-3 py-2 text-[12px] text-muted">{SAVE_UNSUPPORTED}</p>}
       <div className="flex flex-wrap items-center gap-1.5 border-t border-rule bg-panel px-3 py-2 text-[12px]">
         <button
-          disabled={!canWrite || busy !== null || unsaved === 0}
+          disabled={!canWrite || busy !== null || unsaved === 0 || unsupported}
           onClick={() => void run("save")}
-          title="Store the requested values on the robot so they survive a power cycle"
+          title={unsupported ? SAVE_UNSUPPORTED : "Store requested values so they survive a power cycle, if firmware persistence is available"}
           className={`${primaryButton} text-[12px]`}
         >
-          {busy === "save" ? "Saving…" : unsaved ? `Save ${unsaved} to robot flash` : "Save to robot flash"}
+          {unsupported ? "Temporary values only" : busy === "save" ? "Saving…" : unsaved ? `Save ${unsaved} to robot flash` : "Save to robot flash"}
         </button>
         <button
           disabled={!canWrite || busy !== null}
@@ -173,13 +181,14 @@ interface RowProps {
   /** The requested value at the last save, as far as this session knows */
   saved: number | null;
   canWrite: boolean;
+  saveSupported?: boolean;
   watched: boolean;
   onWatch: () => void;
 }
 
 const pill = "inline-block rounded-full border px-[7px] text-[10.5px] leading-4";
 
-function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
+export function TuneRow({ entry, value, saved, canWrite, saveSupported, watched, onWatch }: RowProps) {
   const live = entry.access !== "readOnly";
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
@@ -198,16 +207,19 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
     const number = Number(text.trim());
     if (text.trim() === "" || !Number.isFinite(number)) {
       setError("Enter a number.");
-      return;
+      return false;
     }
+    if (!canWrite) return false;
     setSending(true);
     try {
       await host.requestValue(entry.id, number);
       setDraft(null);
       setError(null);
       setSent({ value: number, seen: false });
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     } finally {
       setSending(false);
     }
@@ -225,8 +237,8 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
 
   const state =
     requested === null ? null : requested !== saved ? (
-      <span className={`${pill} border-accent bg-accent-wash text-ink`} title="Save to keep it after a power cycle">
-        Not saved
+      <span className={`${pill} border-accent bg-accent-wash text-ink`} title={saveSupported === false ? SAVE_UNSUPPORTED : "Save to keep it after a power cycle"}>
+        {saveSupported === false ? "Temporary" : "Not saved"}
       </span>
     ) : null;
 
@@ -272,6 +284,9 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
           {applied === null ? (value ? "read failed" : "") : formatValue(applied, entry.kind)}
         </span>
       )}
+      {live && <TuneSlider entry={entry} value={requested} disabled={!canWrite} onSend={async (next) => {
+        if (!await send(String(next))) throw new Error("Tuning request failed");
+      }} />}
       <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
         {entry.unit && <span>{entry.unit}</span>}
         <button type="button" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen((v) => !v)} className={ghostButton}>Details</button>
@@ -301,7 +316,7 @@ function Row({ entry, value, saved, canWrite, watched, onWatch }: RowProps) {
       {detailsOpen && <div id={detailsId} className="col-span-2 grid gap-1 rounded-sm bg-panel p-2 text-[11px] text-muted">
         <span className="break-all font-mono">{entry.name}</span>
         {range(entry) && <span>Range: {range(entry)}</span>}
-        {entry.maxStep !== null && <span>Step limit: {entry.maxStep} per control tick</span>}
+        {entry.maxStep !== null && <span>Application limit: {entry.maxStep} per firmware update</span>}
         {live && <button type="button" disabled={!canWrite || sending || requested === entry.default} onClick={() => void send(String(entry.default))} className={`${ghostButton} text-left`}>Reset to default ({formatValue(entry.default, entry.kind)})</button>}
       </div>}
       {error && <p className="col-span-2 text-[11px] text-danger">{error}</p>}

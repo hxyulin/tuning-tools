@@ -2,7 +2,7 @@
 // tasks, and the rm-telemetry tuning table.
 
 import type { NodeKind, NodeRef, OpenedElf, RootNode, Scalar, SymbolNode, Task, TaskPoint } from "../../elf/api";
-import { catalogEntries, signals, tasks } from "./firmware";
+import { catalogEntries, signals, tasks, tunables } from "./firmware";
 
 export const MOCK_ELF_PATH = "target/thumbv7em-none-eabihf/release/balance-infantry-chassis";
 
@@ -179,6 +179,18 @@ function build(): OpenedElf {
     const node = makeNode(s, s.name, { symbol: s.name, steps: [] }, at);
     return { ...node, segments: s.name.split("::"), section: s.section, readOnly: s.readOnly ?? false, internal: false };
   });
+  for (const entry of catalogEntries) {
+    const name = `tuning::${entry.name.replace(/\./g, "_").toUpperCase()}`;
+    const spec: Spec = { name, type: "Entry", size: 8, children: [
+      { name: "requested", type: "u32", size: 4, kind: "scalar", scalar: "u32" },
+      { name: "applied", type: "u32", size: 4, kind: "scalar", scalar: "u32" },
+    ] };
+    const node = makeNode(spec, name, { symbol: name, steps: [] }, entry.requestedAddress);
+    roots.push({ ...node, wrapper: "Tunable", segments: name.split("::"), section: ".data", readOnly: false, internal: false });
+    const bits = (value: number) => new Uint32Array(new Float32Array([value]).buffer)[0];
+    localReaders.set(`${name}.requested`, () => bits(tunables[entry.id].requested));
+    localReaders.set(`${name}.applied`, () => bits(tunables[entry.id].applied));
+  }
   const taskList = tasks.map((t, i) => makeTask(t, 0x2000_4000 + i * 0x800));
   return {
     summary: {

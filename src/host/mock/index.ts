@@ -317,13 +317,14 @@ export const mockHost: Host = {
     requireSession("change values");
     const t = tunables[id];
     if (!t) throw new Error("The tuning table has no such value");
-    // The firmware applies the request inside its declared range and step
-    const clamped = Math.round(Math.min(t.max, Math.max(t.min, value)) / t.step) * t.step;
-    t.requested = Number(clamped.toFixed(4));
+    // Store an f32 request; the per-update slew limit is not a quantization step.
+    t.requested = Math.fround(Math.min(t.max, Math.max(t.min, value)));
     log("info", "telemetry", `set ${t.name} = ${t.requested}`);
     sendTune();
   },
   async saveValues() {
+    if (new URLSearchParams(location.search).get("save") === "unsupported") throw new Error("This firmware does not support saving. Changes are temporary and reset on restart.");
+    if (new URLSearchParams(location.search).get("save") === "storage") throw new Error("Saving failed: firmware storage is unavailable or the write failed. Live changes remain active; they may be lost on restart.");
     requireSession("save values");
     await delay(200);
     log("info", "telemetry", "saved tuning table to flash (sector 7)");

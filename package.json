@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test tests/*.test.ts",
     "build": "tsc && vite build && node scripts/prepare-frontend.mjs",
     "build:webview": "tsc && vite build --mode webview",
     "preview": "vite preview",

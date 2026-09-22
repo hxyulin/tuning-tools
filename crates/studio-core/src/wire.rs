@@ -22,7 +22,8 @@ pub fn status_message(status: u8) -> &'static str {
         8 => "this session no longer holds the tuning lease",
         9 => "another tool holds the tuning lease",
         10 => "the watch list would exceed the firmware's sample budget",
-        11 => "the firmware could not write its flash",
+        11 => "Saving failed: firmware storage is unavailable or the write failed. Live changes remain active; they may be lost on restart.",
+        12 => "This firmware does not support saving. Changes are temporary and reset on restart.",
         _ => "the firmware refused the request",
     }
 }
@@ -128,6 +129,13 @@ pub fn slot(tag: u8, bits: u32) -> [u8; 8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_save_is_distinct_from_ambiguous_legacy_storage_failure() {
+        assert!(status_message(12).contains("does not support saving"));
+        assert!(status_message(11).contains("storage is unavailable or the write failed"));
+        assert!(!status_message(11).contains("does not support"));
+    }
 
     #[test]
     fn crc_matches_the_mcrf4xx_check_value() {

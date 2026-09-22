@@ -75,7 +75,12 @@ The crate owns neither a transport nor a clock. For each link:
 
 USB CDC/UART drivers and RTT channel setup remain in firmware. A SAVE response
 is deferred until the caller completes storage. Without that integration, the
-protocol does not magically persist values. Restore saved values at startup
+protocol does not magically persist values. For a deliberately volatile demo,
+use `Server::without_storage(&TABLE)` (unreleased API): SAVE returns
+`Status::SaveUnsupported` (12) immediately and never sets `save_pending()`.
+`Server::new` retains its existing deferred-save behavior. Status 11 remains
+ambiguous for older firmware: storage may be absent or a write may have failed.
+No wire version or existing status code changes. Restore saved values at startup
 using `store` before running the control loop.
 
 ## Contracts and limits

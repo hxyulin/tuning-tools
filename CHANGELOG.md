@@ -7,6 +7,14 @@ for installation, packages and known limits.
 
 ### Added
 
+- Bounded tuning sliders with coalesced writes and precise numeric input.
+- Catalog-aware Live Watch entries with typed applied values, units, tuning
+  controls, applied-value plotting and an explicit raw-descriptor view.
+- `Server::without_storage` and `Status::SaveUnsupported` for volatile firmware;
+  Studio disables Save after this explicit response. Legacy storage errors now
+  describe unavailable storage or write failure without assuming a flash fault.
+
+
 - Desktop and VS Code interfaces backed by a shared Rust acquisition engine.
 - Live variable trees, pointer following, enum payloads, paged arrays/slices and
   persistent pinned watch groups.

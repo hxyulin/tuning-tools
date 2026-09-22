@@ -75,6 +75,8 @@ interface Props {
   live?: boolean;
   activeVariants?: Map<string, string | null>;
   emptyMessage?: string;
+  /** Optional semantic view; the original NodeRef is retained for pinning. */
+  presentNode?: (node: SymbolNode) => SymbolNode;
 }
 
 export function SymbolTree({
@@ -90,6 +92,7 @@ export function SymbolTree({
   live = false,
   activeVariants,
   emptyMessage,
+  presentNode,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [hideReadOnly, setHideReadOnly] = useState(true);
@@ -115,9 +118,9 @@ export function SymbolTree({
         (r) =>
           (!filters || !hideReadOnly || !r.readOnly) &&
           (!filters || !hideInternal || !r.internal) &&
-          (!needle || r.path.toLowerCase().includes(needle)),
+          (!needle || r.path.toLowerCase().includes(needle) || presentNode?.(r).label.toLowerCase().includes(needle)),
       ),
-    [roots, filters, hideReadOnly, hideInternal, needle],
+    [roots, filters, hideReadOnly, hideInternal, needle, presentNode],
   );
   const tree = useMemo(() => buildNamespaces(visibleRoots), [visibleRoots]);
 
@@ -126,7 +129,8 @@ export function SymbolTree({
     // While filtering, open every namespace so matches are visible
     const isOpen = (key: string) => (needle ? true : expanded.has(key));
 
-    const pushNode = (node: SymbolNode, depth: number) => {
+    const pushNode = (original: SymbolNode, depth: number) => {
+      const node = presentNode?.(original) ?? original;
       out.push({ type: "node", key: node.path, node, depth });
       if (!node.expandable || !expanded.has(node.path)) return;
       const state = children.get(node.path);
@@ -161,11 +165,11 @@ export function SymbolTree({
     };
     walk(tree, 0);
     return out;
-  }, [tree, expanded, children, needle, activeVariants]);
+  }, [tree, expanded, children, needle, activeVariants, presentNode]);
 
   useEffect(() => {
     const visible = rows.flatMap((r) => r.type === "node" && r.node.readable && (typeof r.node.scalar === "string" || r.node.kind === "taggedEnum" || r.node.sequence) ? [r.node] : []);
-    const key = visible.map((n) => n.path).join("\n");
+    const key = JSON.stringify(visible.map((n) => [n.path, n.typeName, n.wrapper, n.scalar]));
     if (key !== visibleKey.current) { visibleKey.current = key; onVisibleNodes?.(visible); }
   }, [rows, onVisibleNodes]);
 

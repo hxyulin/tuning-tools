@@ -84,8 +84,21 @@ Target** in the Command Palette and Target Actions, retaining the last connectio
 sample rate for the current extension session.
 
 Tune values can be filtered by full name and grouped sections can be collapsed.
-**Details** contains range, step limit and reset-to-default controls. Unsaved changes,
+Bounded numeric tunables have a slider alongside the precise numeric input.
+Dragging sends at most one request at a time, coalesces intermediate positions at
+100 ms intervals, and sends the final position on release. Slider movement uses
+the declared range; the firmware's per-update `max_step` is not a slider increment.
+Float sliders preserve small ranges, integer sliders use whole-number steps, and
+unbounded or read-only entries do not show sliders.
+**Details** contains range, application limit and reset-to-default controls. Unsaved changes,
 firmware adjustments and write errors remain visible beside their values.
+
+Saving is separate from live tuning. If firmware explicitly replies that it has
+no persistence, Studio shows **Temporary values only** and disables Save for that
+connection; switching tabs preserves this state. Reconnecting retries capability
+discovery on the next Save. Older firmware's storage error cannot distinguish
+missing storage from a failed write, so Studio reports both possibilities and
+leaves retry available. Live changes are not rolled back by a failed save.
 
 Recovery checks: `npm --prefix vscode run test:recovery` and the extension harness.
 
@@ -95,6 +108,15 @@ Open **Variables → Live Watch** in the desktop app, or **Live Watch** in the
 VS Code scope toolbar. Expand namespaces, structs, arrays and pointers to inspect numeric
 fields. Filtering and collapsing groups change the inspected set; **Pause** freezes
 readouts, and **W** on a fixed-address field adds it to the existing plot/watch list.
+
+Registered `Entry`, `Tunable` and watch descriptors use their catalog names,
+types and units: `led.blink_hz` shows **1 Hz**, rather than raw float bits.
+Select a tuning row for numeric/slider editing through the normal tuning request
+path; **Watch** or **W** plots its applied value. Descriptor recognition requires
+both a recognized type and matching catalog cell addresses. **Raw descriptors**
+restores the ordinary expandable structure for low-level inspection.
+Tuning readouts reuse the session's typed catalog samples and honor Pause;
+they do not create raw descriptor subscriptions. Pins retain the original NodeRef.
 
 Inspection runs separately from plotted samples, at up to 5 Hz with one request in
 flight and a limit of 128 expanded numeric fields. Hidden panels stop polling.

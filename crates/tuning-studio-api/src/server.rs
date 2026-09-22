@@ -27,6 +27,7 @@ pub struct Context {
 #[derive(Debug)]
 pub struct Server {
     table: &'static Table,
+    save_supported: bool,
     /// Token and expiry time.
     lease: Option<(u32, u64)>,
     watches: [u16; MAX_WATCHES],
@@ -68,6 +69,7 @@ impl Server {
     pub const fn new(table: &'static Table) -> Self {
         Self {
             table,
+            save_supported: true,
             lease: None,
             watches: [0; MAX_WATCHES],
             watch_len: 0,
@@ -78,6 +80,15 @@ impl Server {
             dropped: 0,
             save: None,
         }
+    }
+
+    /// Serve volatile tuning without a persistence implementation.
+    /// SAVE returns `SaveUnsupported` and never becomes pending.
+    #[must_use]
+    pub const fn without_storage(table: &'static Table) -> Self {
+        let mut server = Self::new(table);
+        server.save_supported = false;
+        server
     }
 
     /// Answer one request into `out`; returns the reply's length.
@@ -120,6 +131,9 @@ impl Server {
         let token = r.u32().ok_or(Status::BadFrame)?;
         done(&r)?;
         self.leased(token, ctx.now_us)?;
+        if !self.save_supported {
+            return Err(Status::SaveUnsupported);
+        }
         if self.save.is_some() {
             return Err(Status::Busy);
         }
@@ -500,6 +514,26 @@ mod tests {
         assert_eq!(r.u32().map(f32::from_bits), Some(5.0));
         assert_eq!(r.u32().map(f32::from_bits), Some(0.1));
         assert_eq!(r.u8(), Some(7));
+    }
+
+    #[test]
+    fn volatile_server_rejects_save_without_pending_storage_work() {
+        let mut link = Link::new();
+        link.server = Server::without_storage(&TABLE);
+        let token = TOKEN.to_le_bytes();
+        assert_eq!(
+            link.call(cmd::SAVE, &token).status,
+            Status::SessionRequired as u8
+        );
+        assert_eq!(link.call(cmd::LEASE, &token).status, 0);
+        assert_eq!(
+            link.call(cmd::SAVE, &token).status,
+            Status::SaveUnsupported as u8
+        );
+        assert!(!link.server.save_pending());
+        assert_eq!(link.server.finish_save(Ok(1), &mut link.out), 0);
+        assert_eq!(link.call(cmd::HELLO, &[]).status, 0);
+        assert_eq!(link.call(cmd::CATALOG, &[0, 0, 10]).status, 0);
     }
 
     #[test]

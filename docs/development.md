@@ -6,6 +6,7 @@ npm run build` before compiling the desktop host directly with Cargo.
 ## Local checks
 
 ```sh
+npm test  # Node 24: tuning presentation and coalesced slider writes
 cargo fmt --all --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets -- -D warnings
@@ -23,6 +24,13 @@ The mock inspector uses the committed ELF fixture and does not require a probe.
 See the [inspector lab](../crates/studio-dwarf/tests/fixtures/README.md) for building
 and flashing the STM32H723 fixture and running its hardware checks. Do not run a
 lab hardware check against unrelated firmware.
+
+The browser mock includes tuning descriptors under the `tuning` namespace.
+Run `npm run dev` and open `http://localhost:1420/?host=mock&save=unsupported`
+to exercise volatile-save feedback, or `&save=storage` for a legacy failure.
+These flags affect only the browser mock. The new firmware constructor and
+status code are unreleased; an existing 0.1.0 image still reports its old status
+until rebuilt with the new API.
 
 ## Real firmware and probes
 

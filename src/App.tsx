@@ -281,7 +281,7 @@ export default function App() {
               </TabStrip>
               {tab === "live" && elf ? (
                 <div className="min-h-0 flex-1">
-                  <LiveWatch roots={symbolRoots} connected={connected} carrier={session.link.carrier} onWatch={onWatch} watched={watchedPaths} />
+                  <LiveWatch catalog={catalog} tune={session.tune} onWatchCell={watch.addCell} roots={symbolRoots} connected={connected} carrier={session.link.carrier} onWatch={onWatch} watched={watchedPaths} />
                 </div>
               ) : tab === "symbols" && elf ? (
                 <>

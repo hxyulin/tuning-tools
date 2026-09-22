@@ -64,6 +64,11 @@ snapshot. Read failures are reported and missing numeric samples use NaN.
 Rates depend on transport latency and host scheduling; numeric samples use `f64`
 and cannot exactly represent every 64-bit integer.
 
+SAVE errors preserve the firmware's distinction on both USB and RTT. Status 12
+explicitly reports unsupported persistence. Legacy status 11 reports storage
+unavailable or write failure; it must not be interpreted as proof of either one.
+Live requests can continue after either refusal.
+
 ## Development
 
 From the [repository](https://github.com/hxyulin/tuning-tools):

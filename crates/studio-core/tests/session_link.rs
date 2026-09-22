@@ -38,6 +38,7 @@ struct Firmware {
     sample_seq: u16,
     armed: bool,
     saved: Vec<(u32, u32)>,
+    save_status: u8,
 }
 
 impl Firmware {
@@ -86,6 +87,7 @@ impl Firmware {
             sample_seq: 0,
             armed: true,
             saved: Vec::new(),
+            save_status: 0,
         }
     }
 
@@ -187,6 +189,10 @@ impl Firmware {
                 self.reply(code, seq, 0, &2u16.to_le_bytes());
             }
             cmd::SAVE => {
+                if self.save_status != 0 {
+                    self.reply(code, seq, self.save_status, &[]);
+                    return;
+                }
                 self.saved = self.cells.iter().map(|c| (c.id, c.requested)).collect();
                 self.reply(code, seq, 0, &1u32.to_le_bytes());
             }
@@ -420,4 +426,22 @@ fn a_lease_held_by_another_tool_fails_the_connection() {
             _ => None,
         });
     assert!(message.unwrap().contains("another tool"));
+}
+
+#[test]
+fn save_errors_preserve_the_firmware_reason_and_live_tuning() {
+    for status in [11, 12] {
+        let fw = Arc::new(Mutex::new(Firmware::new()));
+        fw.lock().unwrap().save_status = status;
+        let (session, _) = start(&fw);
+        let (reply, rx) = mpsc::sync_channel(1);
+        session.send(SessionCommand::Save { reply });
+        let error = rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error, wire::status_message(status));
+        assert!(fw.lock().unwrap().saved.is_empty());
+        request(&session, KP, 55.5).unwrap();
+    }
 }

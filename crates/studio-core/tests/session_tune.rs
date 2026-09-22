@@ -304,3 +304,29 @@ fn a_firmware_without_rtt_control_channels_is_tuned_through_memory_and_cannot_sa
     let err = call(&session, |reply| SessionCommand::Save { reply }).unwrap_err();
     assert!(err.contains("connect over USB"), "{err}");
 }
+
+#[test]
+fn rtt_distinguishes_unsupported_save_from_legacy_storage_failure() {
+    for status in [11, 12] {
+        let (layout, catalog, mock) = fixture();
+        let kp = catalog.entries[0].clone();
+        mock.init_rtt_channels(
+            RTT_BLOCK,
+            &[("defmt", 256), ("telemetry", 256)],
+            &[("control", 256)],
+        );
+        let stop = Arc::new(AtomicBool::new(false));
+        let firmware = fake_firmware(
+            &mock,
+            move |code, _| if code == cmd::SAVE { status } else { 0 },
+            stop.clone(),
+        );
+        let (session, _) = start_with(&mock, layout, catalog, Some(RTT_BLOCK));
+        let error = call(&session, |reply| SessionCommand::Save { reply }).unwrap_err();
+        assert_eq!(error, wire::status_message(status));
+        request(&session, kp.id, 55.5).unwrap();
+        drop(session);
+        stop.store(true, Ordering::Relaxed);
+        firmware.join().unwrap();
+    }
+}

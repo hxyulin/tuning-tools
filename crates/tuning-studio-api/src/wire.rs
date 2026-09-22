@@ -74,6 +74,8 @@ pub enum Status {
     Budget = 10,
     /// Storage is missing, or the write did not verify.
     Storage = 11,
+    /// This firmware intentionally has no persistence implementation.
+    SaveUnsupported = 12,
 }
 
 /// CRC-16/MCRF4XX: reflected 0x1021, init 0xffff, no final xor.

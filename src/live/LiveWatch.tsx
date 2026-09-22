@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { NodeRef, RootNode, SymbolNode } from "../elf/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Catalog, CatalogEntry, NodeRef, RootNode, SymbolNode } from "../elf/api";
 import { RowNote, SymbolTree } from "../elf/SymbolTree";
 import { host } from "../host";
 import { button, field } from "../ui";
-import { Carrier, ValueRead } from "./api";
+import { Carrier, TuneValue, ValueRead } from "./api";
 import { formatValue } from "./format";
+
+import type { Tune } from "./useSession";
+import { tuningEntry, tuningNode } from "./tuningPresentation";
+import { TuneRow } from "./TunePanel";
 
 const LIMIT = 128;
 const INTERVAL_MS = 200;
@@ -20,13 +24,18 @@ function savedGroups(): Groups {
 }
 
 /** Low-rate inspection shares the session's probe; it never adds plot subscriptions. */
-export function LiveWatch({ roots, connected, carrier, onWatch, watched }: {
+export function LiveWatch({ roots, connected, carrier, onWatch, watched, catalog, tune, onWatchCell }: {
   roots: RootNode[];
+  catalog: Catalog | null;
+  tune: Tune | null;
+  onWatchCell: (entry: CatalogEntry) => void;
   connected: boolean;
   carrier: Carrier | null;
   onWatch: (node: SymbolNode) => void;
   watched: Set<string>;
 }) {
+  const [raw, setRaw] = useState(false);
+  const presentNode = useCallback((node: SymbolNode) => raw ? node : tuningNode(node, catalog), [raw, catalog]);
   const [selected, setSelected] = useState<SymbolNode | null>(null);
   const [visible, setVisible] = useState<SymbolNode[]>([]);
   const [paused, setPaused] = useState(false);
@@ -39,6 +48,7 @@ export function LiveWatch({ roots, connected, carrier, onWatch, watched }: {
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [pinnedRoots, setPinnedRoots] = useState<RootNode[]>([]);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [cellValues, setCellValues] = useState<Map<number, TuneValue>>(() => new Map());
   const previous = useRef<Map<string, ValueRead>>(new Map());
   const changed = useRef<Map<string, number>>(new Map());
   useEffect(() => { try { host.storage.set(GROUP_KEY, JSON.stringify(groups)); } catch { setPinError("Could not save watch groups."); } }, [groups]);
@@ -66,7 +76,16 @@ export function LiveWatch({ roots, connected, carrier, onWatch, watched }: {
   const addGroup = () => { const name = newGroup.trim().slice(0, 40); if (name) { setGroups((old) => ({...old, [name]: Array.isArray(old[name]) ? old[name] : []})); setGroup(name); setNewGroup(""); } };
   const variantKey = JSON.stringify([...values].filter(([, v]) => v.activeVariant !== undefined).map(([path, v]) => [path, v.activeVariant]));
   const variants = useMemo(() => new Map<string, string | null>(JSON.parse(variantKey)), [variantKey]);
-  const nodes = useMemo(() => visible.slice(0, LIMIT), [visible]);
+  const nodes = useMemo(() => visible.filter((node) => raw || !tuningEntry(node, catalog)).slice(0, LIMIT), [visible, raw, catalog]);
+  const selectedEntry = raw || !selected ? undefined : tuningEntry(selected, catalog);
+  const semanticWatch = (node: SymbolNode) => {
+    const entry = raw ? undefined : tuningEntry(node, catalog);
+    if (entry) onWatchCell(entry); else onWatch(node);
+  };
+  const treeWatched = new Set([...watched, ...visible.filter((node) => {
+    const entry = !raw && tuningEntry(node, catalog);
+    return entry && watched.has(entry.name);
+  }).map((node) => node.path)]);
   const live = connected && carrier === "probe";
 
   useEffect(() => {
@@ -113,18 +132,34 @@ export function LiveWatch({ roots, connected, carrier, onWatch, watched }: {
     return () => { stopped = true; clearTimeout(timer); };
   }, [nodes, roots, live, paused, pageVisible]);
 
-  const notes = useMemo(() => new Map<string, RowNote>(visible.map((node, i) => {
+  useEffect(() => {
+    if (!live || tune?.check.state !== "matches") setCellValues(new Map());
+    else if (!paused) setCellValues(tune.values);
+  }, [live, tune, paused, roots]);
+
+  const notes = useMemo(() => new Map<string, RowNote>(visible.map((node) => {
+    const entry = raw ? undefined : tuningEntry(node, catalog);
+    if (entry) {
+      const reading = cellValues.get(entry.id)?.applied;
+      return [node.path, {
+        text: reading == null ? "—" : `${formatValue(reading, entry.kind)}${entry.unit ? ` ${entry.unit}` : ""}`,
+        title: `${entry.name} · applied value · select to tune`,
+        tone: live ? "ink" : "muted",
+      }];
+    }
+    const i = nodes.indexOf(node);
     const read = values.get(node.path);
     return [node.path, {
-      text: i >= LIMIT ? "limit reached" : read?.error ? "read failed" : read?.text ?? (read?.value == null ? "—" : node.kind === "pointer" ? `0x${read.value.toString(16)}` : formatValue(read.value, node.scalar)),
+      text: i < 0 ? "limit reached" : read?.error ? "read failed" : read?.text ?? (read?.value == null ? "—" : node.kind === "pointer" ? `0x${read.value.toString(16)}` : formatValue(read.value, node.scalar)),
       title: read?.error ?? `${node.typeName} · ${node.path}`,
       tone: read?.error ? "danger" : live && !paused ? (changed.current.get(node.path) ?? 0) > Date.now() ? "accent" : "ink" : "muted",
     }];
-  })), [visible, values, live, paused]);
+  })), [visible, values, live, paused, raw, catalog, cellValues, nodes]);
 
   return <div className="flex h-full min-h-0 flex-col">
     <div className="flex flex-wrap items-center gap-2 border-b border-rule px-3 py-2 text-[12px]">
-      <span className="flex-1 text-muted">{!connected ? "Connect a debug probe to read live values." : carrier !== "probe" ? "Live Watch needs SWD; USB values are available in Tune." : paused ? "Paused" : `${nodes.length} fields · up to 5 Hz`}</span>
+      <span className="min-w-28 flex-1 text-muted">{!connected ? "Connect a debug probe to read live values." : carrier !== "probe" ? "Live Watch needs SWD; USB values are available in Tune." : paused ? "Paused" : `${visible.length} fields · up to 5 Hz`}</span>
+      <label className="flex items-center gap-1"><input type="checkbox" checked={raw} onChange={(e) => { setRaw(e.target.checked); setSelected(null); }} />Raw descriptors</label>
       <button className={button} disabled={!live} aria-pressed={paused} onClick={() => setPaused((p) => !p)}>{paused ? "Resume" : "Pause"}</button>
     </div>
     <div className="flex flex-wrap items-center gap-1 border-b border-rule px-3 py-2 text-[11px]">
@@ -138,8 +173,13 @@ export function LiveWatch({ roots, connected, carrier, onWatch, watched }: {
     {error && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{error}</p>}
     {visible.length > LIMIT && <p role="status" className="px-3 py-1 text-[12px] text-warn">Showing the first {LIMIT} fields. Collapse a group or filter to inspect others.</p>}
     <div className="min-h-0 flex-1">
-      <SymbolTree roots={pinnedOnly ? pinnedRoots : roots} live={live} activeVariants={variants} filters={!pinnedOnly} emptyMessage={pinnedOnly ? "No available pins in this group. Browse all, select a field, then Pin." : undefined} selected={selected} onSelect={setSelected} onWatch={onWatch} watched={watched} notes={notes} onVisibleNodes={setVisible} label="Live Watch" />
+      <SymbolTree roots={pinnedOnly ? pinnedRoots : roots} live={live} activeVariants={variants} filters={!pinnedOnly} emptyMessage={pinnedOnly ? "No available pins in this group. Browse all, select a field, then Pin." : undefined} selected={selected} onSelect={setSelected} onWatch={semanticWatch} watched={treeWatched} presentNode={presentNode} notes={notes} onVisibleNodes={setVisible} label="Live Watch" />
     </div>
-    <p className="border-t border-rule px-3 py-2 text-[11px] text-muted">Expand structs, arrays and pointers to read their fields. Press W to plot fixed-address numbers. Changed values briefly highlight. Reads do not halt the target.</p>
+    {selectedEntry && <ul aria-label="Selected tuning value" className="max-h-[45%] shrink-0 overflow-auto border-t border-rule">
+      <TuneRow key={selectedEntry.id} entry={selectedEntry} value={tune?.values.get(selectedEntry.id) ?? null}
+        saved={tune?.saved.get(selectedEntry.id) ?? null} saveSupported={tune?.saveSupported} canWrite={connected && tune?.check.state === "matches"}
+        watched={watched.has(selectedEntry.name)} onWatch={() => onWatchCell(selectedEntry)} />
+    </ul>}
+    <p className="border-t border-rule px-3 py-2 text-[11px] text-muted">Expand fields to inspect. W plots values. Select tuning entries to edit; Raw descriptors shows internals.</p>
   </div>;
 }
