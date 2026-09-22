@@ -20,7 +20,8 @@ export class Uri {
     return new Uri(join(base.fsPath, ...parts));
   }
   toString() {
-    return `https://file+.vscode-resource.test${this.fsPath}`;
+    const path = this.fsPath.replace(/\\/g, "/");
+    return `https://file+.vscode-resource.test${path.startsWith("/") ? "" : "/"}${path}`;
   }
 }
 
